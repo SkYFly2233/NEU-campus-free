@@ -12,7 +12,7 @@
 
 3. **最重要的前提**：你购买的服务器必须同时有 **IPv4 地址** 和 **IPv6 地址**双栈。只有 IPv4 的服务器无法实现本教程的校园网免流，购买时请注意看清配置说明。
 
-   ![image-20260813234440624](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20260813234440624.png)
+   ![image-20260813234440624](images/image-20260813234440624.png)
 
 ---
 
@@ -33,7 +33,7 @@
    - 密码：填写你设置服务器时设置的 root 密码
 4. 点击「确定」。
 
-![image-20260813233814271](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20260813233814271.png)
+![image-20260813233814271](images/image-20260813233814271.png)
 
 ### 1.3 连接服务器
 
@@ -41,7 +41,7 @@
 2. 如果弹出「是否接受并保存主机密钥」之类的提示，选择接受。
 3. 连接成功后，窗口里会显示一个命令行输入界面，光标在 `#` 后面闪烁，表示你已经进入了服务器。
 
-![image-20260813234212026](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20260813234212026.png)
+![image-20260813234212026](images/image-20260813234212026.png)
 
 **到这里，你已经成功连上服务器了。** 下面所有操作，都是在 FinalShell 的窗口里输入命令，然后按回车执行。
 
@@ -64,7 +64,7 @@ ip addr
 
 **确认标准：结果里必须同时有 IPv4 和 IPv6 地址**，说明你的服务器是双栈。
 
-![image-20260813234150905](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20260813234150905.png)
+![image-20260813234150905](images/image-20260813234150905.png)
 
 ### 2.2 如果没有 IPv6，手动开启
 
@@ -76,7 +76,7 @@ ip addr
 4. 开启后，**重启服务器**（在后台点 Reboot，或在 FinalShell 里输入 `reboot` 回车）。
 5. 重启完成后，重新连接服务器，再运行一次 `ip addr`，确认 IPv6 已经出现。
 
-![image-20260813234624307](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20260813234624307.png)
+![image-20260813234624307](images/image-20260813234624307.png)
 
 ---
 
@@ -95,7 +95,7 @@ ping -6 -n 20 你服务器的IPv6地址
 - `-6` 表示用 IPv6 协议测试
 - `-n 20` 表示连续发送 20 个测试包（发得多才看得出丢包率）
 
-![image-20260813234754580](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20260813234754580.png)
+![image-20260813234754580](images/image-20260813234754580.png)
 
 ### 3.2 怎么判断结果
 
@@ -131,13 +131,13 @@ bash <(curl -fsSL https://raw.githubusercontent.com/SkYFly2233/NEU-campus-free/m
 
 > 注意：在 FinalShell 里粘贴通常用鼠标右键，或者按住 `Ctrl` 再点右键；直接用 `Ctrl+V` 可能无效。
 >
-> ![image-20260813235119450](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20260813235119450.png)
+> ![image-20260813235119450](images/image-20260813235119450.png)
 
 ### 4.2 选择安装方式
 
 命令执行后，脚本会显示一个菜单。**输入数字 `1`，然后按回车**（1 是「极速安装模式：所有协议 + 订阅」，包含本教程需要的全部功能）。
 
-![image-20260814000137247](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20260814000137247.png)
+![image-20260814000137247](images/image-20260814000137247.png)
 
 ### 4.3 确认 IP（这一步可能没有）
 
@@ -156,7 +156,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/SkYFly2233/NEU-campus-free/m
 
 多等一会，等到有很长的输出就是安装成功了。
 
-![image-20260814000249438](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20260814000249438.png)
+![image-20260814000249438](images/image-20260814000249438.png)
 
 **看到界面出现说明搭建完成了。**
 
@@ -164,7 +164,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/SkYFly2233/NEU-campus-free/m
 
 这个订阅连接的规则是将所有ipv4（除私有网段和校园内的网页）都进行代理，ipv6可选代理或直连
 
-![image-20260814000406561](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20260814000406561.png)
+![image-20260814000406561](images/image-20260814000406561.png)
 
 ---
 
@@ -187,7 +187,7 @@ http://132.xx.xx.123:xxxxx/9xxxxxx00-xxxx-xxxx-xxxx-65xxxxxxxxe0/clash-campus-fr
 4. 在订阅页面的输入框里**粘贴**这个链接，点击「导入」。
 5. 导入后，点击选中这个配置（它会变成高亮），软件会自动开始下载节点。
 
-![image-20260814000523676](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20260814000523676.png)
+![image-20260814000523676](images/image-20260814000523676.png)
 
 记得要切换成你刚导入的链接。
 
@@ -231,7 +231,7 @@ http://132.xx.xx.123:xxxxx/9xxxxxx00-xxxx-xxxx-xxxx-65xxxxxxxxe0/clash-campus-fr
 
 5. 保存后，点击这个配置将其设为当前使用的配置（激活它）。
 
-![img](file:///C:\Users\Administrator\Documents\Tencent Files\421384354\nt_qq\nt_data\Pic\2026-08\Ori\fe2257adf466c5a73eea1a2363773472.jpeg)
+![img](images/fe2257adf466c5a73eea1a2363773472.jpeg)
 
 如果不成功，在手机导入配置连接的时候不要开启代理，开启代理会导入失败。如果还是失败可以直接将PC端的本地文件复制过来用。
 
