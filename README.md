@@ -6,7 +6,7 @@
 
 ## 教程开始前的说明
 
-1. 本教程**不包含购买服务器**的部分。服务器可以关注 **Cloudcone** 或 **Racknerd** 的优惠活动时购买。
+1. 本教程**不包含购买服务器**的部分。服务器可以关注 **Cloudcone** 或 **Racknerd** 的优惠活动时购买，一般十余刀一年，每月2T流量以上，宿舍合租一般够用。
 
 2. 对服务器配置要求不高，购买 **1 核 1G 内存（1C1G）** 的配置就足够使用，系统选Ubuntu，CentOS，Debain应该都可以，脚本都有适配，我用的Ubuntu。
 
@@ -162,6 +162,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/SkYFly2233/NEU-campus-free/m
 
 找到带有clash-campus-free的链接，这个订阅连接对校园网免流进行了优化。
 
+这个订阅连接的规则是将所有ipv4（除私有网段和校园内的网页）都进行代理，ipv6可选代理或直连
+
 ![image-20260814000406561](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20260814000406561.png)
 
 ---
@@ -202,7 +204,11 @@ http://132.xx.xx.123:xxxxx/9xxxxxx00-xxxx-xxxx-xxxx-65xxxxxxxxe0/clash-campus-fr
 https://raw.githubusercontent.com/fscarmen/sing-box/main/sing-box.sh
 ```
 
+详细内容请看：[fscarmen/sing-box: Sing-box 全家桶 --- 一键多协议脚本。支持 Reality、Hysteria2 、TUIC 、Trojan 、Shadowsocks 、 AnyTLS 、ShadowTLS 、 Vmess 、 VLESS 、NaiveProxy，搭配 Argo 隧道等，多客户端订阅（Clash / V2rayN / Throne / ShadowRocket / SFA ），无须域名、功能强大、配置灵活。](https://github.com/fscarmen/sing-box)
+
 因此，如果不是免流使用也可以使用其他通用的订阅链接，免流链接仅对免流规则进行修改，大家也可以个性化修改，看不懂给AI就能改了。
+
+
 
 ---
 
@@ -225,7 +231,9 @@ http://132.xx.xx.123:xxxxx/9xxxxxx00-xxxx-xxxx-xxxx-65xxxxxxxxe0/clash-campus-fr
 
 5. 保存后，点击这个配置将其设为当前使用的配置（激活它）。
 
-> 【此处插入图片：Clash Meta for Android 从 URL 导入配置的界面】
+![img](file:///C:\Users\Administrator\Documents\Tencent Files\421384354\nt_qq\nt_data\Pic\2026-08\Ori\fe2257adf466c5a73eea1a2363773472.jpeg)
+
+如果不成功，在手机导入配置连接的时候不要开启代理，开启代理会导入失败。如果还是失败可以直接将PC端的本地文件复制过来用。
 
 ### 6.3 开启代理
 
@@ -271,3 +279,16 @@ http://132.xx.xx.123:xxxxx/9xxxxxx00-xxxx-xxxx-xxxx-65xxxxxxxxe0/clash-campus-fr
 ---
 
 以上所有内容均为AI写的教程，有遗漏就问问AI该怎么办。
+
+
+
+## 免责声明
+
+* 本程序仅供学习了解, 非盈利目的，请于下载后 24 小时内删除, 不得用作任何商业用途, 文字、数据及图片均有所属版权, 如转载须注明来源。
+* 使用本程序必循遵守部署免责声明。使用本程序必循遵守部署服务器所在地、所在国家和用户所在国家的法律法规, 程序作者不对使用者任何不当行为负责。
+
+
+## 开源证书
+
+* 本项目严格遵守 GNU GPL v3 许可证 [LICENSE](LICENSE)。
+* 任何形式的复制、分发、修改或衍生使用，必须完整保留原版权声明、许可证文本，并以相同许可证开源发布。违反此条款（如闭源使用、商业独占或未开源修改版）将被视为抄袭，作者保留追究法律责任的权利。
