@@ -5464,6 +5464,14 @@ proxy-providers:
       url: https://www.gstatic.com/generate_204
       interval: 300
 
+  # 广告屏蔽规则集：Loyalsoldier 维护的广告/追踪域名列表
+  reject:
+    type: http
+    behavior: domain
+    url: "https://cdn.jsdelivr.net/gh/Loyalsoldier/clash-rules@release/reject.txt"
+    path: ./ruleset/reject.yaml
+    interval: 86400
+
 proxies:
 
 # 四个代理组
@@ -5494,8 +5502,14 @@ proxy-groups:
     proxies: ['🚀 节点选择', '♻️ 自动选择']
     use: ['所有节点']
 
-# 规则：校园网/内网直连 + IPv6 走 IPv6代理组 + 其余 IPv4 走免流节点
+  # 5. 广告屏蔽：命中广告规则集的请求直接拒绝，默认 REJECT，可切 DIRECT 放行
+  - name: 🛑 全球拦截
+    type: select
+    proxies: [REJECT, DIRECT]
+
+# 规则：广告屏蔽 + 校园网/内网直连 + IPv6 走 IPv6代理组 + 其余 IPv4 走免流节点
 rules:
+  - RULE-SET,reject,🛑 全球拦截
 ${CAMPUS_RULES}  - IP-CIDR,172.16.0.0/12,DIRECT
   - IP-CIDR,100.64.0.0/10,DIRECT
   - IP-CIDR,192.168.0.0/16,DIRECT
