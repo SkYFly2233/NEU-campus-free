@@ -5464,6 +5464,7 @@ proxy-providers:
       url: https://www.gstatic.com/generate_204
       interval: 300
 
+rule-providers:
   # 广告屏蔽规则集：Loyalsoldier 维护的广告/追踪域名列表
   reject:
     type: http
