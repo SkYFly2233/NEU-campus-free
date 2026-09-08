@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>流量管理控制台</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: light-dark(#f3f6fb, #0b1018);
+      --surface: light-dark(#ffffff, #141b26);
+      --surface-2: light-dark(#edf2f8, #1b2533);
+      --text: light-dark(#172033, #edf3fb);
+      --muted: light-dark(#667085, #9aa8ba);
+      --line: light-dark(#dbe3ed, #293648);
+      --primary: light-dark(#2558d8, #78a6ff);
+      --primary-soft: light-dark(#e8efff, #1c315f);
+      --good: light-dark(#087a55, #5dd6a7);
+      --warn: light-dark(#a15a00, #ffbd62);
+      --danger: light-dark(#b42318, #ff8279);
+      --shadow: light-dark(0 16px 42px rgba(28,39,58,.08), 0 20px 54px rgba(0,0,0,.25));
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; background: var(--bg); color: var(--text); font-family: Inter,"PingFang SC","Microsoft YaHei",system-ui,sans-serif; }
+    button,input { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .48; }
+    .shell { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 28px 0 48px; }
+    .topbar,.brand,.auth,.panel-head,.actions,.dialog-actions,.user-cell,.protocols { display: flex; align-items: center; }
+    .topbar { justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+    .brand { gap: 12px; }
+    .logo { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; color: #fff; background: var(--primary); font-size: 19px; }
+    h1 { margin: 0; font-size: 21px; font-weight: 650; }
+    .subtitle { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+    .auth { gap: 8px; color: var(--good); font-size: 13px; white-space: nowrap; }
+    .auth::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .metrics { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 14px; margin-bottom: 22px; }
+    .metric,.panel { background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
+    .metric { padding: 17px; border-radius: 14px; }
+    .metric-label { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+    .metric-value { font-size: 23px; font-weight: 650; font-variant-numeric: tabular-nums; }
+    .panel { border-radius: 16px; overflow: hidden; }
+    .panel-head { justify-content: space-between; gap: 18px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
+    h2 { margin: 0; font-size: 16px; font-weight: 650; }
+    .panel-note { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+    .button { min-height: 36px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--text); background: var(--surface); transition: border-color .15s,background .15s,transform .15s; }
+    .button:hover:not(:disabled) { border-color: var(--primary); background: var(--primary-soft); }
+    .button:active:not(:disabled) { transform: translateY(1px); }
+    .button.primary { border-color: var(--primary); background: var(--primary); color: light-dark(#fff,#07101e); }
+    .button.danger { color: var(--danger); }
+    .button.small { min-height: 32px; padding: 5px 9px; font-size: 12px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; min-width: 940px; border-collapse: collapse; }
+    th { padding: 12px 13px; background: var(--surface-2); color: var(--muted); text-align: left; font-size: 12px; font-weight: 600; }
+    td { padding: 15px 13px; border-top: 1px solid var(--line); font-size: 13px; vertical-align: middle; }
+    tbody tr:first-child td { border-top: 0; }
+    .user-cell { gap: 10px; }
+    .avatar { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 10px; background: var(--primary-soft); color: var(--primary); font-weight: 650; }
+    .username { font-weight: 650; }
+    .role,.secondary { margin-top: 2px; color: var(--muted); font-size: 11px; }
+    .status { color: var(--good); white-space: nowrap; }
+    .status.disabled { color: var(--muted); }
+    .protocols { gap: 5px; flex-wrap: wrap; }
+    .protocol { padding: 3px 7px; border-radius: 6px; background: var(--surface-2); color: var(--muted); font-size: 11px; }
+    .number { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .quota { min-width: 174px; }
+    .quota-text { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 7px; font-variant-numeric: tabular-nums; }
+    .track { height: 7px; overflow: hidden; border-radius: 99px; background: var(--surface-2); }
+    .bar { height: 100%; border-radius: inherit; background: var(--primary); }
+    .bar.warning { background: var(--warn); }
+    .bar.over { background: var(--danger); }
+    .actions { justify-content: flex-end; gap: 6px; white-space: nowrap; }
+    .empty,.loading { padding: 56px 20px; text-align: center; color: var(--muted); }
+    .error-panel { display: none; padding: 12px 16px; margin-bottom: 16px; border: 1px solid color-mix(in srgb,var(--danger) 40%,transparent); border-radius: 10px; color: var(--danger); background: color-mix(in srgb,var(--danger) 8%,var(--surface)); }
+    dialog { width: min(440px,calc(100% - 28px)); padding: 0; border: 1px solid var(--line); border-radius: 16px; color: var(--text); background: var(--surface); box-shadow: 0 24px 70px rgba(0,0,0,.35); }
+    dialog::backdrop { background: rgba(4,9,17,.62); backdrop-filter: blur(2px); }
+    .dialog-body { padding: 21px; }
+    .dialog-title { margin: 0 0 6px; font-size: 18px; }
+    .dialog-copy { margin: 0 0 18px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+    .field { margin-bottom: 15px; }
+    label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600; }
+    input { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; outline: none; color: var(--text); background: var(--bg); }
+    input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb,var(--primary) 18%,transparent); }
+    .help { margin-top: 6px; color: var(--muted); font-size: 11px; }
+    .dialog-actions { justify-content: flex-end; gap: 8px; margin-top: 20px; }
+    .toast { position: fixed; right: 22px; bottom: 20px; max-width: min(420px,calc(100% - 44px)); padding: 11px 14px; border-radius: 10px; color: var(--surface); background: var(--text); box-shadow: var(--shadow); opacity: 0; transform: translateY(8px); pointer-events: none; transition: .2s; font-size: 13px; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast.error { color: #fff; background: var(--danger); }
+    @media (max-width:850px) { .metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+    @media (max-width:560px) {
+      .shell { width: min(100% - 24px,1180px); padding-top: 18px; }
+      .topbar,.panel-head { align-items: stretch; flex-direction: column; }
+      .auth { align-self: flex-start; }
+      .metrics { grid-template-columns: 1fr; gap: 10px; }
+      .panel-head .button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><div class="logo" aria-hidden="true">◇</div><div><h1>流量管理控制台</h1><p class="subtitle"><span id="page-path">管理员专属页面</span> · <span id="updated">正在连接</span></p></div></div>
+      <div class="auth" id="admin-name">管理员验证中</div>
+    </header>
+
+    <div class="error-panel" id="error-panel" role="alert"></div>
+    <section class="metrics" aria-label="整体流量摘要">
+      <article class="metric"><div class="metric-label">用户数量</div><div class="metric-value" id="user-count">—</div></article>
+      <article class="metric"><div class="metric-label">累计上传</div><div class="metric-value" id="total-upload">—</div></article>
+      <article class="metric"><div class="metric-label">累计下载</div><div class="metric-value" id="total-download">—</div></article>
+      <article class="metric"><div class="metric-label">总计已用</div><div class="metric-value" id="total-used">—</div></article>
+    </section>
+
+    <section class="panel" aria-labelledby="users-title">
+      <div class="panel-head"><div><h2 id="users-title">用户与额度</h2><p class="panel-note">Hysteria2 与 TUIC 流量合并统计；额度 0 GB 表示不限量</p></div><button class="button primary" id="add-user" type="button">＋ 新建用户</button></div>
+      <div class="table-wrap">
+        <table aria-label="用户流量和限额">
+          <thead><tr><th>用户</th><th>状态</th><th>协议与端口</th><th>上传</th><th>下载</th><th>已用 / 限额</th><th style="text-align:right">管理</th></tr></thead>
+          <tbody id="users"><tr><td colspan="7" class="loading">正在读取用户数据…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="edit-dialog">
+    <form class="dialog-body" id="edit-form">
+      <h2 class="dialog-title" id="edit-title">新建用户</h2>
+      <p class="dialog-copy" id="edit-copy">创建成功后会自动生成独立订阅地址、Hysteria2 与 TUIC 端口。</p>
+      <div class="field" id="username-field"><label for="username">用户名</label><input id="username" maxlength="32" pattern="[A-Za-z0-9_-]{1,32}" autocomplete="off" placeholder="例如 alice"><div class="help">只能包含字母、数字、下划线和连字符</div></div>
+      <div class="field"><label for="quota">流量限额（GB）</label><input id="quota" type="number" min="0" step="0.1" value="100" inputmode="decimal" required><div class="help">0 表示不限量；修改额度不会清除已经使用的流量</div></div>
+      <div class="dialog-actions"><button class="button" data-close="edit-dialog" type="button">取消</button><button class="button primary" id="edit-submit" type="submit">创建用户</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="delete-dialog">
+    <div class="dialog-body"><h2 class="dialog-title">删除用户</h2><p class="dialog-copy" id="delete-copy"></p><div class="dialog-actions"><button class="button" data-close="delete-dialog" type="button">取消</button><button class="button danger" id="delete-confirm" type="button">确认删除</button></div></div>
+  </dialog>
+  <div class="toast" id="toast" aria-live="polite"></div>
+
+  <script>
+    (() => {
+      'use strict';
+      const $ = selector => document.querySelector(selector);
+      const usersBody = $('#users');
+      const editDialog = $('#edit-dialog');
+      const deleteDialog = $('#delete-dialog');
+      const editForm = $('#edit-form');
+      const state = { users: [], editing: null, deleting: null, busy: false };
+      let toastTimer;
+
+      const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+      const formatBytes = value => {
+        const bytes = Number(value || 0), units = ['B','KB','MB','GB','TB'];
+        if (bytes <= 0) return '0 B';
+        const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+        return `${(bytes / 1024 ** index).toFixed(index < 3 ? 1 : 2)} ${units[index]}`;
+      };
+      function toast(message, error = false) {
+        const element = $('#toast'); element.textContent = message; element.className = `toast show${error ? ' error' : ''}`;
+        clearTimeout(toastTimer); toastTimer = setTimeout(() => element.className = 'toast', 2600);
+      }
+      function setError(message = '') { const panel = $('#error-panel'); panel.textContent = message; panel.style.display = message ? 'block' : 'none'; }
+      async function request(path, options = {}) {
+        const headers = { Accept: 'application/json', ...(options.headers || {}) };
+        if (options.method && options.method !== 'GET') { headers['Content-Type'] = 'application/json'; headers['X-SB-Admin'] = '1'; }
+        const response = await fetch(`api${path}`, { cache: 'no-store', credentials: 'same-origin', ...options, headers });
+        let data = {}; try { data = await response.json(); } catch (_) {}
+        if (!response.ok) throw new Error(data.error || `请求失败（${response.status}）`);
+        return data;
+      }
+      function render(data) {
+        state.users = data.users || [];
+        $('#admin-name').textContent = `管理员 ${data.admin}`;
+        $('#user-count').textContent = data.totals.user_count;
+        $('#total-upload').textContent = formatBytes(data.totals.upload_bytes);
+        $('#total-download').textContent = formatBytes(data.totals.download_bytes);
+        $('#total-used').textContent = formatBytes(data.totals.used_bytes);
+        $('#updated').textContent = `更新于 ${new Date(data.refreshed_at).toLocaleTimeString()}`;
+        $('#page-path').textContent = location.pathname.replace(/[a-f0-9]{64}/, token => `${token.slice(0,6)}…${token.slice(-6)}`);
+        if (!state.users.length) { usersBody.innerHTML = '<tr><td colspan="7" class="empty">暂无用户</td></tr>'; return; }
+        usersBody.innerHTML = state.users.map(user => {
+          const percent = user.quota_bytes ? Math.min(100, user.used_bytes / user.quota_bytes * 100) : 0;
+          const level = percent >= 100 ? 'over' : percent >= 80 ? 'warning' : '';
+          const ports = [`Hysteria2 ${user.hysteria2_port}`]; if (user.tuic_port) ports.push(`TUIC ${user.tuic_port}`);
+          return `<tr>
+            <td><div class="user-cell"><div class="avatar">${escapeHtml(user.username.slice(0,1).toUpperCase())}</div><div><div class="username">${escapeHtml(user.username)}</div><div class="role">${user.is_admin ? '管理员' : '普通用户'}</div></div></div></td>
+            <td><span class="status ${user.enabled ? '' : 'disabled'}">${user.enabled ? '● 启用' : '○ 停用'}</span></td>
+            <td><div class="protocols">${ports.map(port => `<span class="protocol">${escapeHtml(port)}</span>`).join('')}</div></td>
+            <td class="number">${formatBytes(user.upload_bytes)}</td><td class="number">${formatBytes(user.download_bytes)}</td>
+            <td><div class="quota"><div class="quota-text"><span>${formatBytes(user.used_bytes)}</span><span>${user.quota_bytes ? formatBytes(user.quota_bytes) : '不限量'}</span></div>${user.quota_bytes ? `<div class="track"><div class="bar ${level}" style="width:${percent}%"></div></div><div class="secondary">可用 ${formatBytes(user.remaining_bytes)}</div>` : '<div class="secondary">无流量上限</div>'}</div></td>
+            <td><div class="actions"><button class="button small" data-action="copy" data-user="${escapeHtml(user.username)}">订阅</button><button class="button small" data-action="quota" data-user="${escapeHtml(user.username)}">额度</button><button class="button small" data-action="toggle" data-user="${escapeHtml(user.username)}" ${user.is_admin ? 'disabled' : ''}>${user.enabled ? '停用' : '启用'}</button><button class="button small danger" data-action="delete" data-user="${escapeHtml(user.username)}" ${user.is_admin ? 'disabled' : ''}>删除</button></div></td>
+          </tr>`;
+        }).join('');
+      }
+      async function load(showError = true) {
+        try { const data = await request('/users'); setError(); render(data); }
+        catch (error) { if (showError) setError(error.message); }
+      }
+      async function mutate(path, method, body, success) {
+        if (state.busy) return; state.busy = true;
+        try { await request(path, { method, body: body === undefined ? undefined : JSON.stringify(body) }); toast(success); await load(); return true; }
+        catch (error) { toast(error.message, true); return false; }
+        finally { state.busy = false; }
+      }
+      function openCreate() {
+        state.editing = null; $('#edit-title').textContent = '新建用户'; $('#edit-copy').textContent = '创建成功后会自动生成独立订阅地址、Hysteria2 与 TUIC 端口。';
+        $('#username-field').hidden = false; $('#username').required = true; $('#username').value = ''; $('#quota').value = '100'; $('#edit-submit').textContent = '创建用户'; editDialog.showModal(); $('#username').focus();
+      }
+      function openQuota(user) {
+        state.editing = user.username; $('#edit-title').textContent = `修改 ${user.username} 的流量限额`; $('#edit-copy').textContent = '新的额度会立即写入订阅中的流量信息，不会重置已用流量。';
+        $('#username-field').hidden = true; $('#username').required = false; $('#quota').value = user.quota_gb; $('#edit-submit').textContent = '保存限额'; editDialog.showModal(); $('#quota').focus();
+      }
+      async function copySubscription(user) {
+        try { await navigator.clipboard.writeText(user.subscription); toast(`${user.username} 的订阅地址已复制`); }
+        catch (_) { const area = document.createElement('textarea'); area.value = user.subscription; document.body.append(area); area.select(); document.execCommand('copy'); area.remove(); toast(`${user.username} 的订阅地址已复制`); }
+      }
+      $('#add-user').addEventListener('click', openCreate);
+      document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => $(`#${button.dataset.close}`).close()));
+      editForm.addEventListener('submit', async event => {
+        event.preventDefault(); const quota = $('#quota').value;
+        if (state.editing) { if (await mutate(`/users/${encodeURIComponent(state.editing)}/quota`, 'PATCH', { quota_gb: quota }, `${state.editing} 的额度已更新`)) editDialog.close(); }
+        else { const username = $('#username').value.trim(); if (await mutate('/users', 'POST', { username, quota_gb: quota }, `用户 ${username} 已创建`)) editDialog.close(); }
+      });
+      usersBody.addEventListener('click', async event => {
+        const button = event.target.closest('[data-action]'); if (!button) return;
+        const user = state.users.find(item => item.username === button.dataset.user); if (!user) return;
+        if (button.dataset.action === 'copy') copySubscription(user);
+        if (button.dataset.action === 'quota') openQuota(user);
+        if (button.dataset.action === 'toggle') await mutate(`/users/${encodeURIComponent(user.username)}/status`, 'PATCH', { enabled: !user.enabled }, `用户 ${user.username} 已${user.enabled ? '停用' : '启用'}`);
+        if (button.dataset.action === 'delete') { state.deleting = user.username; $('#delete-copy').textContent = `删除 ${user.username} 后，其订阅地址和双协议凭据将立即失效，此操作不可撤销。`; deleteDialog.showModal(); }
+      });
+      $('#delete-confirm').addEventListener('click', async () => { if (await mutate(`/users/${encodeURIComponent(state.deleting)}`, 'DELETE', undefined, `用户 ${state.deleting} 已删除`)) deleteDialog.close(); });
+      load(); setInterval(() => { if (!editDialog.open && !deleteDialog.open) load(false); }, 30000);
+    })();
+  </script>
+</body>
+</html>
