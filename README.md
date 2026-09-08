@@ -124,7 +124,7 @@ ping -6 -n 20 你服务器的IPv6地址
 在 FinalShell 里，把下面这一整行命令**复制粘贴**进去，然后按回车：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/SkYFly2233/NEU-campus-free/main/sing-box.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/SkYFly2233/NEU-campus-free/main/sing-box.sh) -l
 ```
 
 下载可能会等一会。如果需要依赖就安装。
