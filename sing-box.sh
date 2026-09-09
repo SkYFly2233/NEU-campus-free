@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # 当前脚本版本号
-VERSION='v1.8.2-campus (2026.09.09)'
+VERSION='v1.8.3-campus (2026.09.09)'
 
 # Github 反代加速代理
 GITHUB_PROXY=('https://hub.glowp.xyz/' 'https://proxy.vvvv.ee/')
@@ -439,6 +439,10 @@ E[196]="A Sing-box installation managed by another script was detected: ${FOREIG
 C[196]="检测到由其他脚本管理的 Sing-box 安装：${FOREIGN_SINGBOX_REASON}。"
 E[197]="Backup location:"
 C[197]="备份位置："
+E[198]="Initializing the Hysteria2/TUIC multi-user manager..."
+C[198]="正在初始化 Hysteria2/TUIC 多用户管理器……"
+E[199]="The Hysteria2/TUIC multi-user manager is ready."
+C[199]="Hysteria2/TUIC 多用户管理器已经就绪。"
 
 # 自定义字体彩色，read 函数
 warning() { echo -e "\033[31m\033[01m$*\033[0m"; }  # 红色
@@ -2171,7 +2175,13 @@ SB_USER_ADMIN_PAGE_B64
 
   # 每次安装/升级均初始化：这会把旧的公共 Hysteria2/TUIC 入站收缩为仅本机可用的模板，
   # 使已缓存的旧公共节点不能绕过用户流量统计与额度。
-  /usr/bin/sb-user init >/dev/null 2>&1 || {
+  local SB_USER_INIT_STATUS=0
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 60s /usr/bin/sb-user init >/dev/null 2>&1 || SB_USER_INIT_STATUS=$?
+  else
+    /usr/bin/sb-user init >/dev/null 2>&1 || SB_USER_INIT_STATUS=$?
+  fi
+  [ "$SB_USER_INIT_STATUS" -eq 0 ] || {
     warning " Failed to initialize Hysteria2/TUIC multi-user manager. Run [sb-user init] for details."
     return 1
   }
@@ -3683,6 +3693,7 @@ mark_foreign_singbox() {
 
 # 查安装及运行状态，下标0: sing-box，下标1: argo，下标2: nginx；状态码: 26 未安装， 27 已安装未运行， 28 运行中
 check_install() {
+  local CHECK_MODE=$1
   local PS_LIST=$(ps -eo pid,args | grep -E "$WORK_DIR.*([s]ing-box|[c]loudflared|[n]ginx)" | sed 's/^[ ]\+//g')
 
   if [[ "$IS_SUB" = 'is_sub' ]] || has_subscription_artifacts; then
@@ -3763,13 +3774,16 @@ check_install() {
     fi
   fi
 
-  # 并发下载订阅模板 (clash, clash2, sing-box-template)，在新安装和更换协议时会用到
-  {
-    wget --no-check-certificate --tries=3 --timeout=15 -qO $TEMP_DIR/clash ${GH_PROXY}${SUBSCRIBE_TEMPLATE}/clash 2>/dev/null &
-    wget --no-check-certificate --tries=3 --timeout=15 -qO $TEMP_DIR/clash2 ${GH_PROXY}${SUBSCRIBE_TEMPLATE}/clash2 2>/dev/null &
-    wget --no-check-certificate --tries=3 --timeout=15 -qO $TEMP_DIR/sing-box-template ${GH_PROXY}${SUBSCRIBE_TEMPLATE}/sing-box 2>/dev/null &
-    wait
-  } &
+  # 并发下载订阅模板 (clash, clash2, sing-box-template)，在新安装和更换协议时会用到。
+  # export_list 只做状态刷新，不能再次启动一批下载任务，否则会产生竞态并延迟收尾。
+  if [ "$CHECK_MODE" != 'status_only' ] && [ "$IS_FAST_INSTALL" != 'is_fast_install' ]; then
+    {
+      wget --no-check-certificate --tries=3 --timeout=15 -qO $TEMP_DIR/clash ${GH_PROXY}${SUBSCRIBE_TEMPLATE}/clash 2>/dev/null &
+      wget --no-check-certificate --tries=3 --timeout=15 -qO $TEMP_DIR/clash2 ${GH_PROXY}${SUBSCRIBE_TEMPLATE}/clash2 2>/dev/null &
+      wget --no-check-certificate --tries=3 --timeout=15 -qO $TEMP_DIR/sing-box-template ${GH_PROXY}${SUBSCRIBE_TEMPLATE}/sing-box 2>/dev/null &
+      wait
+    } &
+  fi
 
   # 如果有需要，后台静默下载 sing-box
   if [ "${STATUS[0]}" = "$(text 26)" ] && [ ! -s ${WORK_DIR}/sing-box ]; then
@@ -3793,14 +3807,18 @@ check_install() {
 
     # 任务 3: 下载 qrencode
     {
-      wget --no-check-certificate --tries=3 --timeout=15 -qO $TEMP_DIR/qrencode \
-        ${GH_PROXY}https://github.com/fscarmen/client_template/raw/main/qrencode-go/qrencode-go-linux-$QRENCODE_ARCH 2>/dev/null \
-        && chmod +x $TEMP_DIR/qrencode
+      if [ "$IS_FAST_INSTALL" != 'is_fast_install' ]; then
+        wget --no-check-certificate --tries=3 --timeout=15 -qO $TEMP_DIR/qrencode \
+          ${GH_PROXY}https://github.com/fscarmen/client_template/raw/main/qrencode-go/qrencode-go-linux-$QRENCODE_ARCH 2>/dev/null \
+          && chmod +x $TEMP_DIR/qrencode
+      fi
     } &
 
     # 任务 4: 注册 warp 账号
     {
-      wget -qO- --tries=10 --waitretry=1 --timeout=2 "https://warp.cloudflare.nyc.mn/?run=register" > $TEMP_DIR/warp_account.json 2>/dev/null
+      if [ "$IS_FAST_INSTALL" != 'is_fast_install' ]; then
+        wget -qO- --tries=10 --waitretry=1 --timeout=2 "https://warp.cloudflare.nyc.mn/?run=register" > $TEMP_DIR/warp_account.json 2>/dev/null
+      fi
     } &
   elif [ "${STATUS[0]}" != "$(text 26)" ] && [ -x "${WORK_DIR}/sing-box" ]; then
     # 查 sing-box 进程号，运行时长和内存占用，占用的端口
@@ -6881,7 +6899,7 @@ install_sing-box() {
 export_list() {
   IS_INSTALL=$1
 
-  check_install
+  check_install status_only
 
   [ "$IS_INSTALL" != 'install' ] && fetch_nodes_value
   [ "$IS_SUB" = 'is_sub' ] && ensure_subscribe_token
@@ -7857,12 +7875,22 @@ naive+quic://${UUID[22]}:${UUID[22]}@${ip1}:${PORT_NAIVE}?congestion_control=bbr
     done
   fi
 
-  {
-    # 生成 sing-box SFM SFA SFI 订阅文件
-    [ ! -s "$TEMP_DIR/sing-box-template" ] && wget --no-check-certificate --continue -qO "$TEMP_DIR/sing-box-template" "${GH_PROXY}${SUBSCRIBE_TEMPLATE}/sing-box" 2>/dev/null
-    cat $TEMP_DIR/sing-box-template | sed "s#\"<OUTBOUND_REPLACE>\",#$OUTBOUND_REPLACE#; s#\"<NODE_REPLACE>\"#${NODE_REPLACE%,}#g" | ${WORK_DIR}/jq > ${WORK_DIR}/subscribe/sing-box
-    rm -f $TEMP_DIR/sing-box-template
-  } &>/dev/null
+  # 严格多用户入口只向 Clash 提供 clash-campus-free/proxies，不需要旧的
+  # SFM/SFA/SFI 公共模板。跳过这项远程下载可避免 GitHub 不可达时无限等待。
+  if ! is_strict_multi_user_mode; then
+    {
+      # 生成 sing-box SFM SFA SFI 订阅文件；兜底下载也必须有重试和超时。
+      [ -s "$TEMP_DIR/sing-box-template" ] || wget --no-check-certificate --tries=3 --timeout=15 \
+        -qO "$TEMP_DIR/sing-box-template" "${GH_PROXY}${SUBSCRIBE_TEMPLATE}/sing-box" 2>/dev/null
+      if [ -s "$TEMP_DIR/sing-box-template" ]; then
+        sed "s#\"<OUTBOUND_REPLACE>\",#$OUTBOUND_REPLACE#; s#\"<NODE_REPLACE>\"#${NODE_REPLACE%,}#g" \
+          "$TEMP_DIR/sing-box-template" | ${WORK_DIR}/jq > ${WORK_DIR}/subscribe/sing-box
+      fi
+      rm -f "$TEMP_DIR/sing-box-template"
+    } &>/dev/null
+  else
+    rm -f "${WORK_DIR}/subscribe/sing-box" "$TEMP_DIR/sing-box-template"
+  fi
 
   # 生成二维码 url 文件。严格多用户模式没有公共订阅，因此清理旧的公共二维码文件。
   if [ "$IS_SUB" = 'is_sub' ] && ! is_strict_multi_user_mode; then
@@ -7884,6 +7912,14 @@ $(${WORK_DIR}/qrencode "$SUBSCRIBE_ADDRESS/${SUBSCRIBE_TOKEN}/auto2")
 EOF
   elif is_strict_multi_user_mode; then
     rm -f "${WORK_DIR}/subscribe/qr"
+  fi
+
+  # 先完成关键管理组件，再处理展示用流量统计和终端输出。即使后面的
+  # 非关键步骤异常，管理员命令也不会再处于 command not found 状态。
+  if [ "$IS_SUB" = 'is_sub' ] && [ -n "$PORT_HYSTERIA2" ]; then
+    info "\n $(text 198) "
+    install_multi_user_manager || error "\n Failed to install the Hysteria2/TUIC multi-user manager. \n"
+    info " $(text 199) \n"
   fi
 
   # 生成配置文件
@@ -8023,7 +8059,6 @@ $(hint "⬆ Outbound (total):  $(format_traffic $OUT_SUM)")
 
   # 生成并显示节点信息
   echo "$EXPORT_LIST_FILE" > ${WORK_DIR}/list
-  [ "$IS_SUB" = 'is_sub' ] && [ -n "$PORT_HYSTERIA2" ] && install_multi_user_manager
   if is_strict_multi_user_mode; then
     # 模板仅供 root 的 sb-user 使用，Nginx 也不会再公开 /subscribe 路径。
     chmod 700 "${WORK_DIR}/subscribe"

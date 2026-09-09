@@ -140,6 +140,17 @@ rules:
         self.assertIn('"$ARGO_DAEMON_FILE"', shell)
         self.assertIn('$(text 197) ${REINSTALL_BACKUP_DIR}', shell)
 
+        export_start = shell.index("\nexport_list() {")
+        export_end = shell.index("\n# 创建快捷方式", export_start)
+        export_body = shell[export_start:export_end]
+        self.assertIn("check_install status_only", export_body)
+        self.assertIn("if ! is_strict_multi_user_mode; then", export_body)
+        self.assertNotIn("wget --no-check-certificate --continue", export_body)
+        self.assertLess(
+            export_body.index("install_multi_user_manager || error"),
+            export_body.index("if ensure_stats_data; then"),
+        )
+
     def test_clash_orders_ipv6_nodes_and_group_defaults_first(self):
         proxy_path = sb_user.SUBSCRIBE_DIR / "proxies"
         proxy_path.write_text(
