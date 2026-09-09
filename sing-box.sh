@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # 当前脚本版本号
-VERSION='v1.8.1-campus (2026.09.09)'
+VERSION='v1.8.2-campus (2026.09.09)'
 
 # Github 反代加速代理
 GITHUB_PROXY=('https://hub.glowp.xyz/' 'https://proxy.vvvv.ee/')
@@ -427,8 +427,8 @@ E[190]="Static IPv6 (from NIC):"
 C[190]="静态 IPv6（来自网卡）:"
 E[191]="An existing Sing-box installation was detected. To prevent old services, ports, and configuration files from conflicting with this clean installation, it must be removed first."
 C[191]="检测到已有 Sing-box 安装。为避免旧服务、端口和配置与新版冲突，必须先卸载旧安装后才能重新安装。"
-E[192]="The existing /etc/sing-box directory and Sing-box service file will first be backed up to: ${REINSTALL_BACKUP_DIR}\nBack up, uninstall the existing Sing-box installation, and continue? [y/N] (default N):"
-C[192]="现有的 /etc/sing-box 目录和 Sing-box 服务文件会先备份到：${REINSTALL_BACKUP_DIR}\n是否备份并卸载旧 Sing-box 后继续安装？[y/N]（默认为 N）："
+E[192]="Back up, uninstall the existing Sing-box installation, and continue? [y/N] (default N):"
+C[192]="是否备份并卸载旧 Sing-box 后继续安装？[y/N]（默认为 N）："
 E[193]="The existing installation was kept. The script exited without changing it."
 C[193]="已保留旧安装，脚本退出；现有代理配置没有被修改。"
 E[194]="The old installation was backed up and removed. Continuing with the new installation."
@@ -437,8 +437,8 @@ E[195]="A non-interactive installation detected an existing Sing-box. Run intera
 C[195]="无交互安装检测到已有 Sing-box。请改为交互运行并确认卸载，或在自行备份后添加 --REINSTALL true。"
 E[196]="A Sing-box installation managed by another script was detected: ${FOREIGN_SINGBOX_REASON}."
 C[196]="检测到由其他脚本管理的 Sing-box 安装：${FOREIGN_SINGBOX_REASON}。"
-E[197]="Backup location: ${REINSTALL_BACKUP_DIR}"
-C[197]="备份位置：${REINSTALL_BACKUP_DIR}"
+E[197]="Backup location:"
+C[197]="备份位置："
 
 # 自定义字体彩色，read 函数
 warning() { echo -e "\033[31m\033[01m$*\033[0m"; }  # 红色
@@ -3844,14 +3844,13 @@ check_install() {
     fi
   fi
 
-  # 如果有需要，后台静默下载 cloudflared
-  if [[ "${STATUS[1]}" = "$(text 26)" || "$NONINTERACTIVE_INSTALL" = 'noninteractive_install' ]] && [ ! -s ${WORK_DIR}/cloudflared ]; then
-    {
-      wget --no-check-certificate -qO $TEMP_DIR/cloudflared ${GH_PROXY}https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$ARGO_ARCH >/dev/null 2>&1 && chmod +x $TEMP_DIR/cloudflared >/dev/null 2>&1
-    }&
-  elif [ "${STATUS[1]}" != "$(text 26)" ]; then
+  if [ "${STATUS[1]}" != "$(text 26)" ]; then
     # 查 Argo 进程号，运行时长和内存占用
-    ARGO_VERSION=$(${WORK_DIR}/cloudflared -v | awk '{print $3}' | sed "s@^@Version: &@g")
+    if [ -x "${WORK_DIR}/cloudflared" ]; then
+      ARGO_VERSION=$(${WORK_DIR}/cloudflared -v | awk '{print $3}' | sed "s@^@Version: &@g")
+    else
+      ARGO_VERSION="Version: unavailable"
+    fi
     [ "${STATUS[1]}" = "$(text 28)" ] && ARGO_PID=$(awk '/cloudflared/{print $1}' <<< "$PS_LIST") && [[ "$ARGO_PID" =~ ^[0-9]+$ ]] && ARGO_MEMORY_USAGE="$(text 58): $(awk '/VmRSS/{printf "%.1f\n", $2/1024}' /proc/$ARGO_PID/status) MB"
   fi
 
@@ -3921,6 +3920,7 @@ backup_and_remove_existing_singbox() {
   for LEGACY_PATH in \
     "$WORK_DIR" \
     "$SINGBOX_DAEMON_FILE" \
+    "$ARGO_DAEMON_FILE" \
     /lib/systemd/system/sing-box.service \
     /usr/lib/systemd/system/sing-box.service \
     /etc/s-box \
@@ -3937,9 +3937,12 @@ backup_and_remove_existing_singbox() {
     systemctl disable --now sb-user-web.service >/dev/null 2>&1 || true
     systemctl disable --now sing-box >/dev/null 2>&1 || true
     systemctl stop sing-box >/dev/null 2>&1 || true
+    systemctl disable --now argo >/dev/null 2>&1 || true
   elif [ "$SYSTEM" = 'Alpine' ]; then
     rc-service sing-box stop >/dev/null 2>&1 || true
     rc-update del sing-box default >/dev/null 2>&1 || true
+    rc-service argo stop >/dev/null 2>&1 || true
+    rc-update del argo default >/dev/null 2>&1 || true
   fi
 
   # 有些旧脚本没有留下可用的 service 文件，进程仍会占用 UDP 端口；统一结束它们。
@@ -3955,15 +3958,16 @@ backup_and_remove_existing_singbox() {
         /etc/systemd/system/sb-user-collect.timer \
         /etc/systemd/system/sb-user-web.service \
         "$SINGBOX_DAEMON_FILE" \
+        "$ARGO_DAEMON_FILE" \
         /usr/bin/sb-user \
         /usr/bin/sb
-  [ "$SYSTEM" = 'Alpine' ] && rm -f /etc/init.d/sing-box
+  [ "$SYSTEM" = 'Alpine' ] && rm -f /etc/init.d/sing-box /etc/init.d/argo
   rm -rf "$WORK_DIR"
   command -v systemctl >/dev/null 2>&1 && systemctl daemon-reload >/dev/null 2>&1 || true
   FOREIGN_SINGBOX_DETECTED=''
   FOREIGN_SINGBOX_REASON=''
   REINSTALL_PREPARED=true
-  info "\n $(text 194)\n $(text 197) \n"
+  info "\n $(text 194)\n $(text 197) ${REINSTALL_BACKUP_DIR} \n"
 }
 
 # 快装模式与第三方旧安装都必须经过此入口，避免旧二进制未下载、服务冲突或覆盖旧配置。
@@ -3974,6 +3978,7 @@ prepare_clean_reinstall() {
   REINSTALL_BACKUP_DIR="/root/sing-box-pre-reinstall-$(date +%Y%m%d-%H%M%S)"
   warning "\n $(text 191) "
   [ -n "$FOREIGN_SINGBOX_REASON" ] && warning " $(text 196) "
+  info " $(text 197) ${REINSTALL_BACKUP_DIR} "
 
   if [ "$NONINTERACTIVE_INSTALL" = 'noninteractive_install' ] && [[ "${FORCE_REINSTALL,,}" != 'true' ]]; then
     error "\n $(text 195) \n"
@@ -6809,9 +6814,20 @@ install_sing-box() {
   cp $TEMP_DIR/sing-box $TEMP_DIR/jq ${WORK_DIR}
   [ -x $TEMP_DIR/qrencode ] && cp $TEMP_DIR/qrencode ${WORK_DIR}
 
-  # 生成 Argo systemd 配置文件，并复制 cloudflared 可执行二进制文件
-  cp $TEMP_DIR/cloudflared ${WORK_DIR}
-  [ -n "$ARGO_RUNS" ] && argo_systemd
+  # 只有确实选择 Argo 时才下载、复制并配置 cloudflared。Hysteria2/TUIC
+  # 快装明确为 no_argo，不能因为缺少 cloudflared 输出无关错误。
+  if [ "$IS_ARGO" = 'is_argo' ]; then
+    if [ ! -x "${WORK_DIR}/cloudflared" ]; then
+      if [ ! -x "$TEMP_DIR/cloudflared" ]; then
+        wget --no-check-certificate --tries=3 --timeout=15 -qO "$TEMP_DIR/cloudflared" \
+          "${GH_PROXY}https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$ARGO_ARCH" 2>/dev/null \
+          && chmod +x "$TEMP_DIR/cloudflared"
+      fi
+      [ -x "$TEMP_DIR/cloudflared" ] || error "\n Cloudflared download failed. Please check the server network and try again. \n"
+      cp "$TEMP_DIR/cloudflared" "${WORK_DIR}/cloudflared"
+    fi
+    [ -n "$ARGO_RUNS" ] && argo_systemd
+  fi
 
   # 如果是 Json Argo，把配置文件复制到工作目录
   [ -n "$ARGO_JSON" ] && cp $TEMP_DIR/tunnel.* ${WORK_DIR}

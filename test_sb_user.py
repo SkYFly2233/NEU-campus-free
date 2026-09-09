@@ -130,6 +130,16 @@ rules:
         self.assertNotIn("CHOOSE_PROTOCOLS='a'", body)
         self.assertNotIn("IS_ARGO='is_argo'", body)
 
+        install_match = re.search(r"(?ms)^install_sing-box\(\) \{.*?^\}", shell)
+        self.assertIsNotNone(install_match)
+        install_body = install_match.group(0)
+        self.assertIn("if [ \"$IS_ARGO\" = 'is_argo' ]; then", install_body)
+        self.assertIn('cp "$TEMP_DIR/cloudflared" "${WORK_DIR}/cloudflared"', install_body)
+        self.assertNotIn("cp $TEMP_DIR/cloudflared ${WORK_DIR}", install_body)
+        self.assertIn("systemctl disable --now argo", shell)
+        self.assertIn('"$ARGO_DAEMON_FILE"', shell)
+        self.assertIn('$(text 197) ${REINSTALL_BACKUP_DIR}', shell)
+
     def test_clash_orders_ipv6_nodes_and_group_defaults_first(self):
         proxy_path = sb_user.SUBSCRIBE_DIR / "proxies"
         proxy_path.write_text(
