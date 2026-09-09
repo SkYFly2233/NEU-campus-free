@@ -330,7 +330,21 @@ def base_proxy_lines() -> list[str]:
         raise ManagerError("基础订阅中没有 Hysteria2 节点。")
     if find_base_tuic_config() is not None and not any("type: tuic" in line for line in result):
         raise ManagerError("已安装 TUIC，但基础订阅中没有 TUIC 节点。")
-    return result
+
+    # Clash 会默认选中 select 组里的第一个节点。无论安装时网卡地址的
+    # 原始顺序如何，都把双协议的 IPv6 节点放在 IPv4 节点前面；同一
+    # 地址族内仍保持 Hysteria2/TUIC 和各地址原有的稳定顺序。
+    def is_ipv6_proxy(line: str) -> bool:
+        match = re.search(r"(?:^|,\s*)server:\s*(\"[^\"]*\"|'[^']*'|[^,}\s]+)", line)
+        if match is None:
+            return False
+        server = match.group(1).strip("\"'[]")
+        return ":" in server
+
+    return (
+        [line for line in result if is_ipv6_proxy(line)]
+        + [line for line in result if not is_ipv6_proxy(line)]
+    )
 
 
 def base_hy2_proxy_lines() -> list[str]:

@@ -130,6 +130,44 @@ rules:
         self.assertNotIn("CHOOSE_PROTOCOLS='a'", body)
         self.assertNotIn("IS_ARGO='is_argo'", body)
 
+    def test_clash_orders_ipv6_nodes_and_group_defaults_first(self):
+        proxy_path = sb_user.SUBSCRIBE_DIR / "proxies"
+        proxy_path.write_text(
+            "proxies:\n"
+            '  - {name: "hy2-v4", type: hysteria2, server: 192.0.2.1, port: 10001, password: base-password}\n'
+            '  - {name: "hy2-v6-a", type: hysteria2, server: 2001:db8::1, port: 10001, password: base-password}\n'
+            '  - {name: "hy2-v6-b", type: hysteria2, server: 2001:db8::2, port: 10001, password: base-password}\n'
+            '  - {name: "hy2-v6-c", type: hysteria2, server: 2001:db8::3, port: 10001, password: base-password}\n'
+            '  - {name: "tuic-v4", type: tuic, server: 192.0.2.1, port: 10002, uuid: 00000000-0000-4000-8000-000000000001, password: base-password}\n'
+            '  - {name: "tuic-v6-a", type: tuic, server: 2001:db8::1, port: 10002, uuid: 00000000-0000-4000-8000-000000000001, password: base-password}\n'
+            '  - {name: "tuic-v6-b", type: tuic, server: 2001:db8::2, port: 10002, uuid: 00000000-0000-4000-8000-000000000001, password: base-password}\n'
+            '  - {name: "tuic-v6-c", type: tuic, server: 2001:db8::3, port: 10002, uuid: 00000000-0000-4000-8000-000000000001, password: base-password}\n',
+            encoding="utf-8",
+        )
+
+        ordered_names = [
+            re.search(r'name: "([^"]+)"', line).group(1)
+            for line in sb_user.base_proxy_lines()
+        ]
+        self.assertEqual(
+            ordered_names,
+            [
+                "hy2-v6-a", "hy2-v6-b", "hy2-v6-c",
+                "tuic-v6-a", "tuic-v6-b", "tuic-v6-c",
+                "hy2-v4", "tuic-v4",
+            ],
+        )
+
+        shell = SCRIPT.with_name("sing-box.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            "proxies: [DIRECT, '♻️ 自动选择', '🚀 节点选择']",
+            shell,
+        )
+        self.assertIn(
+            "proxies: ['♻️ 自动选择', '🚀 节点选择']",
+            shell,
+        )
+
     def test_adds_distinct_users_and_renders_admin_summary(self):
         conn = sb_user.connect()
         try:
