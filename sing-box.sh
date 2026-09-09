@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # 当前脚本版本号
-VERSION='v1.7.0-campus (2026.09.08)'
+VERSION='v1.7.1-campus (2026.09.09)'
 
 # Github 反代加速代理
 GITHUB_PROXY=('https://hub.glowp.xyz/' 'https://proxy.vvvv.ee/')
@@ -45,8 +45,8 @@ mkdir -p "$TEMP_DIR"
 
 E[0]="Language:\n 1. English (default) \n 2. 简体中文"
 C[0]="${E[0]}"
-E[1]="1. Add an administrator-only web console for multi-user traffic and quota management; 2. provide SQLite-backed Hysteria2/TUIC subscriptions and combined per-user accounting; 3. add a two-protocol-only quick installer; 4. use independent 256-bit subscription tokens"
-C[1]="1. 新增管理员专用网页，可查看双协议合并流量并管理用户与额度; 2. 提供基于 SQLite 的 Hysteria2/TUIC 严格多用户订阅; 3. 新增仅安装这两种协议的极速安装; 4. 使用独立 256 位订阅令牌"
+E[1]="1. Add an administrator-only web console for multi-user traffic and quota management; 2. provide SQLite-backed Hysteria2/TUIC subscriptions and combined per-user accounting; 3. add a two-protocol-only quick installer; 4. safely back up and remove an old Sing-box installation before a clean reinstall"
+C[1]="1. 新增管理员专用网页，可查看双协议合并流量并管理用户与额度; 2. 提供基于 SQLite 的 Hysteria2/TUIC 严格多用户订阅; 3. 新增仅安装这两种协议的极速安装; 4. 重装前自动检测、备份并卸载旧 Sing-box，避免新旧配置冲突"
 E[2]="Downloading Sing-box. Please wait a seconds ..."
 C[2]="下载 Sing-box 中，请稍等 ..."
 E[3]="Input errors up to 5 times.The script is aborted."
@@ -425,6 +425,20 @@ E[189]="You cannot remove all IPs. Keeping all detected IPs."
 C[189]="不能去掉所有 IP，已保留全部检测到的 IP。"
 E[190]="Static IPv6 (from NIC):"
 C[190]="静态 IPv6（来自网卡）:"
+E[191]="An existing Sing-box installation was detected. To prevent old services, ports, and configuration files from conflicting with this clean installation, it must be removed first."
+C[191]="检测到已有 Sing-box 安装。为避免旧服务、端口和配置与新版冲突，必须先卸载旧安装后才能重新安装。"
+E[192]="The existing /etc/sing-box directory and Sing-box service file will first be backed up to: ${REINSTALL_BACKUP_DIR}\nBack up, uninstall the existing Sing-box installation, and continue? [y/N] (default N):"
+C[192]="现有的 /etc/sing-box 目录和 Sing-box 服务文件会先备份到：${REINSTALL_BACKUP_DIR}\n是否备份并卸载旧 Sing-box 后继续安装？[y/N]（默认为 N）："
+E[193]="The existing installation was kept. The script exited without changing it."
+C[193]="已保留旧安装，脚本退出；现有代理配置没有被修改。"
+E[194]="The old installation was backed up and removed. Continuing with the new installation."
+C[194]="旧安装已经备份并卸载，继续安装新版。"
+E[195]="A non-interactive installation detected an existing Sing-box. Run interactively and confirm removal, or pass --REINSTALL true after making a backup."
+C[195]="无交互安装检测到已有 Sing-box。请改为交互运行并确认卸载，或在自行备份后添加 --REINSTALL true。"
+E[196]="A Sing-box installation managed by another script was detected: ${FOREIGN_SINGBOX_REASON}."
+C[196]="检测到由其他脚本管理的 Sing-box 安装：${FOREIGN_SINGBOX_REASON}。"
+E[197]="Backup location: ${REINSTALL_BACKUP_DIR}"
+C[197]="备份位置：${REINSTALL_BACKUP_DIR}"
 
 # 自定义字体彩色，read 函数
 warning() { echo -e "\033[31m\033[01m$*\033[0m"; }  # 红色
@@ -3457,6 +3471,13 @@ check_brutal() {
   [ "$IS_BRUTAL" = 'false' ] && command -v modprobe >/dev/null 2>&1 && modprobe brutal 2>/dev/null && IS_BRUTAL=true
 }
 
+# 不在状态检测阶段直接退出：旧脚本或其他面板安装的 sing-box 要先给用户备份、卸载和重装的机会。
+mark_foreign_singbox() {
+  FOREIGN_SINGBOX_DETECTED=true
+  FOREIGN_SINGBOX_REASON="$1"
+  STATUS[0]=$(text 27)
+}
+
 # 查安装及运行状态，下标0: sing-box，下标1: argo，下标2: nginx；状态码: 26 未安装， 27 已安装未运行， 28 运行中
 check_install() {
   local PS_LIST=$(ps -eo pid,args | grep -E "$WORK_DIR.*([s]ing-box|[c]loudflared|[n]ginx)" | sed 's/^[ ]\+//g')
@@ -3484,7 +3505,8 @@ check_install() {
           fi
           ;;
         * )
-          SING_BOX_SCRIPT='Unknown or customized sing-box' && error "\n $(text 99) \n"
+          mark_foreign_singbox 'Unknown or customized sing-box (OpenRC)'
+          ;;
       esac
     else
       STATUS[0]=$(text 26)
@@ -3498,38 +3520,40 @@ check_install() {
           [ "$(systemctl is-active sing-box)" = 'active' ] && STATUS[0]=$(text 28) || STATUS[0]=$(text 27)
           ;;
         'ExecStart=/etc/v2ray-agent/sing-box/sing-box run -c /etc/v2ray-agent/sing-box/conf/config.json' )
-          SING_BOX_SCRIPT='mack-a/v2ray-agent' && error "\n $(text 99) \n"
+          mark_foreign_singbox 'mack-a/v2ray-agent'
           ;;
         'ExecStart=/etc/s-box/sing-box run -c /etc/s-box/sb.json' )
-          SING_BOX_SCRIPT='yonggekkk/sing-box_hysteria2_tuic_argo_reality' && error "\n $(text 99) \n"
+          mark_foreign_singbox 'yonggekkk/sing-box_hysteria2_tuic_argo_reality'
           ;;
         'ExecStart=/usr/local/s-ui/bin/runSingbox.sh' )
-          SING_BOX_SCRIPT='alireza0/s-ui' && error "\n $(text 99) \n"
+          mark_foreign_singbox 'alireza0/s-ui'
           ;;
         'ExecStart=/usr/local/bin/sing-box run -c /usr/local/etc/sing-box/config.json' )
-          SING_BOX_SCRIPT='FranzKafkaYu/sing-box-yes' && error "\n $(text 99) \n"
+          mark_foreign_singbox 'FranzKafkaYu/sing-box-yes'
           ;;
         * )
           # 检查是否是自己的脚本安装的，但路径略有不同
           if [[ "$SYSTEMD_EXECSTART" =~ "ExecStart=${WORK_DIR}/sing-box run" ]]; then
             [ "$(systemctl is-active sing-box)" = 'active' ] && STATUS[0]=$(text 28) || STATUS[0]=$(text 27)
           else
-            SING_BOX_SCRIPT='Unknown or customized sing-box' && error "\n $(text 99) \n"
+            mark_foreign_singbox 'Unknown or customized sing-box (systemd)'
           fi
+          ;;
       esac
     elif [ -s /lib/systemd/system/sing-box.service ]; then
       SYSTEMD_EXECSTART=$(grep '^ExecStart=' /lib/systemd/system/sing-box.service)
       case "$SYSTEMD_EXECSTART" in
         'ExecStart=/etc/sing-box/bin/sing-box run -c /etc/sing-box/config.json -C /etc/sing-box/conf' )
-          SING_BOX_SCRIPT='233boy/sing-box' && error "\n $(text 99) \n"
+          mark_foreign_singbox '233boy/sing-box'
           ;;
         * )
           # 检查是否是自己的脚本安装的，但路径略有不同
           if [[ "$SYSTEMD_EXECSTART" =~ "ExecStart=${WORK_DIR}/sing-box run" ]]; then
             [ "$(systemctl is-active sing-box)" = 'active' ] && STATUS[0]=$(text 28) || STATUS[0]=$(text 27)
           else
-            SING_BOX_SCRIPT='Unknown or customized sing-box' && error "\n $(text 99) \n"
+            mark_foreign_singbox 'Unknown or customized sing-box (/lib systemd unit)'
           fi
+          ;;
       esac
     else
       STATUS[0]=$(text 26)
@@ -3538,9 +3562,9 @@ check_install() {
 
   # 并发下载订阅模板 (clash, clash2, sing-box-template)，在新安装和更换协议时会用到
   {
-    wget --no-check-certificate --continue -qO $TEMP_DIR/clash ${GH_PROXY}${SUBSCRIBE_TEMPLATE}/clash 2>/dev/null &
-    wget --no-check-certificate --continue -qO $TEMP_DIR/clash2 ${GH_PROXY}${SUBSCRIBE_TEMPLATE}/clash2 2>/dev/null &
-    wget --no-check-certificate --continue -qO $TEMP_DIR/sing-box-template ${GH_PROXY}${SUBSCRIBE_TEMPLATE}/sing-box 2>/dev/null &
+    wget --no-check-certificate --tries=3 --timeout=15 -qO $TEMP_DIR/clash ${GH_PROXY}${SUBSCRIBE_TEMPLATE}/clash 2>/dev/null &
+    wget --no-check-certificate --tries=3 --timeout=15 -qO $TEMP_DIR/clash2 ${GH_PROXY}${SUBSCRIBE_TEMPLATE}/clash2 2>/dev/null &
+    wget --no-check-certificate --tries=3 --timeout=15 -qO $TEMP_DIR/sing-box-template ${GH_PROXY}${SUBSCRIBE_TEMPLATE}/sing-box 2>/dev/null &
     wait
   } &
 
@@ -3551,7 +3575,7 @@ check_install() {
       local ONLINE=$(get_sing_box_version)
       local SB_DIR="$TEMP_DIR/sing-box-$ONLINE-linux-$SING_BOX_ARCH"
       local SB_BIN="$SB_DIR/sing-box"
-      wget --no-check-certificate --continue \
+      wget --no-check-certificate --tries=3 --timeout=15 \
         ${GH_PROXY}https://github.com/SagerNet/sing-box/releases/download/v$ONLINE/sing-box-$ONLINE-linux-$SING_BOX_ARCH.tar.gz \
         -qO- | tar xz -C $TEMP_DIR 2>/dev/null
       [ -s "$SB_BIN" ] && [ -x "$SB_BIN" ] && mv "$SB_BIN" "$TEMP_DIR/sing-box" && chmod +x "$TEMP_DIR/sing-box"
@@ -3559,14 +3583,14 @@ check_install() {
 
     # 任务 2: 下载 jq
     {
-      wget --no-check-certificate --continue -qO $TEMP_DIR/jq \
+      wget --no-check-certificate --tries=3 --timeout=15 -qO $TEMP_DIR/jq \
         ${GH_PROXY}https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-$JQ_ARCH 2>/dev/null \
         && chmod +x $TEMP_DIR/jq
     } &
 
     # 任务 3: 下载 qrencode
     {
-      wget --no-check-certificate --continue -qO $TEMP_DIR/qrencode \
+      wget --no-check-certificate --tries=3 --timeout=15 -qO $TEMP_DIR/qrencode \
         ${GH_PROXY}https://github.com/fscarmen/client_template/raw/main/qrencode-go/qrencode-go-linux-$QRENCODE_ARCH 2>/dev/null \
         && chmod +x $TEMP_DIR/qrencode
     } &
@@ -3575,7 +3599,7 @@ check_install() {
     {
       wget -qO- --tries=10 --waitretry=1 --timeout=2 "https://warp.cloudflare.nyc.mn/?run=register" > $TEMP_DIR/warp_account.json 2>/dev/null
     } &
-  elif [ "${STATUS[0]}" != "$(text 26)" ]; then
+  elif [ "${STATUS[0]}" != "$(text 26)" ] && [ -x "${WORK_DIR}/sing-box" ]; then
     # 查 sing-box 进程号，运行时长和内存占用，占用的端口
     SING_BOX_VERSION="Version: $(${WORK_DIR}/sing-box version | awk '/version/{print $NF}')"
     [ "${STATUS[0]}" = "$(text 28)" ] && SING_BOX_PID=$(awk '/sing-box run/{print $1}' <<< "$PS_LIST") && [[ "$SING_BOX_PID" =~ ^[0-9]+$ ]] && SING_BOX_MEMORY_USAGE="$(text 58): $(awk '/VmRSS/{printf "%.1f\n", $2/1024}' /proc/$SING_BOX_PID/status) MB"
@@ -3667,6 +3691,97 @@ nginx_sync() {
   else
     nginx_stop
   fi
+}
+
+# 判断是否有会与全新安装冲突的本机 Sing-box 服务、进程或配置目录。
+# 这里不依赖 check_install()，因此可在下载任务启动前处理旧脚本和第三方面板。
+has_existing_singbox_installation() {
+  [ -d "$WORK_DIR" ] && return 0
+  [ -x "$WORK_DIR/sing-box" ] && return 0
+  [ -e "$SINGBOX_DAEMON_FILE" ] && return 0
+  if [ "$SYSTEM" != 'Alpine' ]; then
+    [ -e /lib/systemd/system/sing-box.service ] && return 0
+    [ -e /usr/lib/systemd/system/sing-box.service ] && return 0
+  fi
+  pgrep -x sing-box >/dev/null 2>&1 && return 0
+  return 1
+}
+
+# 只清理 Sing-box 自己的服务和 /etc/sing-box；Nginx 软件包及其他网站配置不会被卸载。
+# 所有会删除的配置都会先复制到 root 专属的时间戳备份目录。
+backup_and_remove_existing_singbox() {
+  REINSTALL_BACKUP_DIR=${REINSTALL_BACKUP_DIR:-"/root/sing-box-pre-reinstall-$(date +%Y%m%d-%H%M%S)"}
+  mkdir -p "$REINSTALL_BACKUP_DIR"
+  chmod 700 "$REINSTALL_BACKUP_DIR"
+
+  local LEGACY_PATH
+  for LEGACY_PATH in \
+    "$WORK_DIR" \
+    "$SINGBOX_DAEMON_FILE" \
+    /lib/systemd/system/sing-box.service \
+    /usr/lib/systemd/system/sing-box.service \
+    /etc/s-box \
+    /etc/v2ray-agent/sing-box \
+    /usr/local/etc/sing-box; do
+    [ -e "$LEGACY_PATH" ] && cp -a "$LEGACY_PATH" "$REINSTALL_BACKUP_DIR/"
+  done
+
+  # 先停止旧的自管 Nginx，避免它继续占用旧订阅端口；不会卸载系统 Nginx。
+  [ -s "$WORK_DIR/nginx.conf" ] && nginx_stop
+
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl disable --now sb-user-collect.timer >/dev/null 2>&1 || true
+    systemctl disable --now sb-user-web.service >/dev/null 2>&1 || true
+    systemctl disable --now sing-box >/dev/null 2>&1 || true
+    systemctl stop sing-box >/dev/null 2>&1 || true
+  elif [ "$SYSTEM" = 'Alpine' ]; then
+    rc-service sing-box stop >/dev/null 2>&1 || true
+    rc-update del sing-box default >/dev/null 2>&1 || true
+  fi
+
+  # 有些旧脚本没有留下可用的 service 文件，进程仍会占用 UDP 端口；统一结束它们。
+  if command -v pkill >/dev/null 2>&1; then
+    pkill -TERM -x sing-box >/dev/null 2>&1 || true
+    sleep 1
+    pkill -KILL -x sing-box >/dev/null 2>&1 || true
+  fi
+
+  purge_service_firewall_rules >/dev/null 2>&1 || true
+  del_port_hopping_nat >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/sb-user-collect.service \
+        /etc/systemd/system/sb-user-collect.timer \
+        /etc/systemd/system/sb-user-web.service \
+        "$SINGBOX_DAEMON_FILE" \
+        /usr/bin/sb-user \
+        /usr/bin/sb
+  [ "$SYSTEM" = 'Alpine' ] && rm -f /etc/init.d/sing-box
+  rm -rf "$WORK_DIR"
+  command -v systemctl >/dev/null 2>&1 && systemctl daemon-reload >/dev/null 2>&1 || true
+  FOREIGN_SINGBOX_DETECTED=''
+  FOREIGN_SINGBOX_REASON=''
+  REINSTALL_PREPARED=true
+  info "\n $(text 194)\n $(text 197) \n"
+}
+
+# 快装模式与第三方旧安装都必须经过此入口，避免旧二进制未下载、服务冲突或覆盖旧配置。
+prepare_clean_reinstall() {
+  [ "$REINSTALL_PREPARED" = true ] && return 0
+  has_existing_singbox_installation || return 0
+
+  REINSTALL_BACKUP_DIR="/root/sing-box-pre-reinstall-$(date +%Y%m%d-%H%M%S)"
+  warning "\n $(text 191) "
+  [ -n "$FOREIGN_SINGBOX_REASON" ] && warning " $(text 196) "
+
+  if [ "$NONINTERACTIVE_INSTALL" = 'noninteractive_install' ] && [[ "${FORCE_REINSTALL,,}" != 'true' ]]; then
+    error "\n $(text 195) \n"
+  fi
+  if [[ "${FORCE_REINSTALL,,}" != 'true' ]]; then
+    reading "\n $(text 192) " REINSTALL_CONFIRM
+    if [[ ! "${REINSTALL_CONFIRM,,}" =~ ^(y|yes)$ ]]; then
+      error "\n $(text 193) \n"
+    fi
+  fi
+  backup_and_remove_existing_singbox
 }
 
 # 为了适配 alpine，定义 cmd_systemctl 的函数
@@ -6490,6 +6605,7 @@ install_sing-box() {
   [ ! -d ${TEMP_DIR} ] && mkdir -p $TEMP_DIR
   ssl_certificate $TLS_SERVER_DEFAULT
   hint "\n $(text 2) " && wait
+  [ -x "$TEMP_DIR/sing-box" ] || error "\n $(text 42) \n"
   sing-box_json
   echo "${L^^}" > ${WORK_DIR}/language
   cp $TEMP_DIR/sing-box $TEMP_DIR/jq ${WORK_DIR}
@@ -8213,17 +8329,9 @@ quick_install_hy2_tuic() {
   unset HY2_PORT_HOPPING_RANGE PORT_HOPPING_START PORT_HOPPING_END
   unset IS_HY2_REALM IS_HY2_WARP HY2_REALM_ID
 
-  # 同样支持已有安装：只删除脚本已知的其他协议入站，
-  # 保留 Hysteria2、TUIC、sb-user 数据库与用户订阅。
-  if [ -d "${WORK_DIR}/conf" ]; then
-    local QUICK_PROTOCOL_INDEX
-    for QUICK_PROTOCOL_INDEX in "${!NODE_TAG[@]}"; do
-      case "$QUICK_PROTOCOL_INDEX" in
-        1|2 ) ;;
-        * ) rm -f "${WORK_DIR}/conf/"*"${NODE_TAG[QUICK_PROTOCOL_INDEX]}_inbounds.json" ;;
-      esac
-    done
-  fi
+  # 快装只用于全新部署。若调用路径绕过了入口检查，也必须先备份并移除旧安装，
+  # 绝不在旧目录上局部覆盖配置，避免旧节点、旧服务和端口规则互相冲突。
+  has_existing_singbox_installation && prepare_clean_reinstall
 
   install_sing-box
   export_list install
@@ -8586,6 +8694,9 @@ for z in ${!ALL_PARAMETER[@]}; do
     --HY2_WARP|--REALM_WARP|--WARP_REALM )
       ((z++)); [[ "${ALL_PARAMETER[z],,}" =~ ^(true|1|y|yes)$ ]] && IS_HY2_WARP=is_hy2_warp && IS_HY2_REALM=is_hy2_realm
       ;;
+    --REINSTALL )
+      ((z++)); [[ "${ALL_PARAMETER[z],,}" =~ ^(true|1|y|yes)$ ]] && FORCE_REINSTALL=true
+      ;;
     --BIND_INTERFACE )
       ((z++)); BIND_INTERFACE=${ALL_PARAMETER[z]}
       [[ "${BIND_INTERFACE,,}" = "default" ]] && unset BIND_INTERFACE
@@ -8599,7 +8710,27 @@ done
 check_arch
 check_dependencies
 check_system_ip
+
+# -l 是“全新双协议安装”，不能复用任何旧二进制或配置；否则后台下载会被跳过，
+# 随后可能出现等待下载、端口冲突或旧节点超时。先让用户确认备份和卸载。
+if [ "$IS_FAST_INSTALL" = 'is_fast_install' ]; then
+  prepare_clean_reinstall
+elif { [ -d "$WORK_DIR" ] && [ ! -x "$WORK_DIR/sing-box" ]; } || pgrep -x sing-box >/dev/null 2>&1; then
+  # 残留目录、损坏安装或没有 systemd/OpenRC 托管的旧进程，也要在下载开始前处理。
+  prepare_clean_reinstall
+fi
 check_install
+
+# 第三方脚本的 service 以前会在 check_install 中直接退出，既没有卸载入口也容易留下
+# 运行中的旧进程。现在统一给出备份/卸载确认，清理后重新检测并开始下载任务。
+if [ "$FOREIGN_SINGBOX_DETECTED" = true ]; then
+  prepare_clean_reinstall
+  check_install
+elif [ "${STATUS[0]}" = "$(text 26)" ] && has_existing_singbox_installation; then
+  # 目录或残留进程存在、但 service 已损坏时也必须先清理，避免覆盖残留配置。
+  prepare_clean_reinstall
+  check_install
+fi
 if [ "$NONINTERACTIVE_INSTALL" = 'noninteractive_install' ]; then
   # 预设默认值，允许只传 --CHOOSE_PROTOCOLS 进行最小无交互安装。
   CHOOSE_PROTOCOLS=${CHOOSE_PROTOCOLS:-'a'}
