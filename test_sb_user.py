@@ -174,13 +174,14 @@ rules:
             self.assertIn(f"uuid: \"{sb_user.tuic_uuid(users[1])}\"", alice_proxies)
             self.assertIn('name: "📊 整体流量检测"', admin_config)
             self.assertIn('name: "📊 整体流量检测"', alice_config)
-            self.assertIn("📊 管理员 admin 已用0.00 GB 可用不限量", admin_config)
+            self.assertIn("📊 月流量总计 已用11.00 GB 可用3.99 TB 上限4.00 TB", admin_config)
+            self.assertIn("📊 管理员 admin 已用0.00 GB 共享可用3.99 TB 月上限4.00 TB", admin_config)
             self.assertIn("📊 用户 ⚠️超额 alice 已用11.00 GB 可用0.00 GB 限额10.00 GB", admin_config)
             self.assertNotIn("📊 管理员 admin", alice_config)
             self.assertIn("📊 用户 ⚠️超额 alice 已用11.00 GB 可用0.00 GB 限额10.00 GB", alice_config)
-            self.assertEqual(admin_config.count("    type: direct"), 2)
+            self.assertEqual(admin_config.count("    type: direct"), 3)
             self.assertEqual(alice_config.count("    type: direct"), 1)
-            self.assertNotIn("总计", admin_config)
+            self.assertNotIn("月流量总计", alice_config)
             self.assertIn("type: select\n    proxies:\n", alice_config)
             self.assertIn(f"/user/{users[1]['token']}/proxies", alice_config)
             self.assertIn(f"url: http://198.51.100.1:8443/user/{users[1]['token']}/proxies", alice_config)
@@ -291,6 +292,35 @@ rules:
             sb_user.read_counters = original_reader
             conn.close()
 
+    def test_monthly_cycle_resets_usage_and_counter_baselines(self):
+        conn = sb_user.connect()
+        original_month = sb_user.current_traffic_month
+        try:
+            sb_user.cmd_add(conn, argparse.Namespace(username="admin", quota_gb="0"))
+            conn.execute(
+                "UPDATE users SET upload_bytes=?,download_bytes=?,last_upload_counter=?,last_download_counter=?",
+                (3 * sb_user.GIB, 2 * sb_user.GIB, 1234, 5678),
+            )
+            conn.execute(
+                "UPDATE meta SET value='2025-12' WHERE key=?",
+                (sb_user.TRAFFIC_MONTH_META_KEY,),
+            )
+            conn.commit()
+            sb_user.current_traffic_month = lambda: "2026-01"
+            sb_user.collect_usage(conn, render=False)
+            row = sb_user.get_user(conn, "admin")
+            self.assertEqual(row["upload_bytes"], 0)
+            self.assertEqual(row["download_bytes"], 0)
+            self.assertEqual(row["last_upload_counter"], 0)
+            self.assertEqual(row["last_download_counter"], 0)
+            month = conn.execute(
+                "SELECT value FROM meta WHERE key=?", (sb_user.TRAFFIC_MONTH_META_KEY,)
+            ).fetchone()["value"]
+            self.assertEqual(month, "2026-01")
+        finally:
+            sb_user.current_traffic_month = original_month
+            conn.close()
+
     def test_admin_web_page_authentication_and_user_management(self):
         with contextlib.closing(sb_user.connect()) as conn:
             sb_user.cmd_init(conn, argparse.Namespace())
@@ -337,6 +367,25 @@ rules:
             self.assertEqual(data["totals"]["user_count"], 2)
             self.assertEqual({item["username"] for item in data["users"]}, {"admin", "alice"})
             self.assertIn("subscription", data["users"][0])
+            self.assertEqual(data["server_monthly_quota_bytes"], 4 * sb_user.TIB)
+            self.assertEqual(data["server_monthly_remaining_bytes"], 4 * sb_user.TIB)
+            admin_payload = next(item for item in data["users"] if item["username"] == "admin")
+            alice_payload = next(item for item in data["users"] if item["username"] == "alice")
+            self.assertTrue(admin_payload["uses_server_quota"])
+            self.assertEqual(admin_payload["display_total_bytes"], 4 * sb_user.TIB)
+            self.assertFalse(alice_payload["uses_server_quota"])
+            self.assertEqual(alice_payload["display_total_bytes"], 10 * sb_user.GIB)
+
+            with request(f"{admin_base}/clash-campus-free") as response:
+                self.assertEqual(
+                    response.headers["Subscription-Userinfo"],
+                    f"upload=0; download=0; total={4 * sb_user.TIB}",
+                )
+            with request(f"/user/{alice_token}/clash-campus-free") as response:
+                self.assertEqual(
+                    response.headers["Subscription-Userinfo"],
+                    f"upload=0; download=0; total={10 * sb_user.GIB}",
+                )
 
             with self.assertRaises(urllib.error.HTTPError) as missing_confirmation:
                 request(
@@ -348,6 +397,17 @@ rules:
             missing_confirmation.exception.close()
 
             write_headers = {"X-SB-Admin": "1"}
+            with request(
+                f"{admin_base}/api/server-quota",
+                "PATCH",
+                {"quota_tb": 5},
+                write_headers,
+            ) as response:
+                self.assertEqual(response.status, 200)
+            with request(f"{admin_base}/api/users") as response:
+                quota_data = json.load(response)
+            self.assertEqual(quota_data["server_monthly_quota_bytes"], 5 * sb_user.TIB)
+
             with request(
                 f"{admin_base}/api/users",
                 "POST",
@@ -373,8 +433,29 @@ rules:
 
             with contextlib.closing(sb_user.connect()) as conn:
                 bob = sb_user.get_user(conn, "bob")
+                bob_token = bob["token"]
                 self.assertEqual(bob["quota_bytes"], int(sb_user.decimal.Decimal("12.5") * sb_user.GIB))
                 self.assertEqual(bob["enabled"], 0)
+
+            with self.assertRaises(urllib.error.HTTPError) as disabled_subscription:
+                request(f"/user/{bob_token}/clash-campus-free")
+            self.assertEqual(disabled_subscription.exception.code, 403)
+            disabled_subscription.exception.close()
+
+            with request(
+                f"{admin_base}/api/users",
+                "POST",
+                {"username": "shared", "quota_gb": 0},
+                write_headers,
+            ) as response:
+                self.assertEqual(response.status, 201)
+            with contextlib.closing(sb_user.connect()) as conn:
+                shared_token = sb_user.get_user(conn, "shared")["token"]
+            with request(f"/user/{shared_token}/clash-campus-free") as response:
+                self.assertEqual(
+                    response.headers["Subscription-Userinfo"],
+                    f"upload=0; download=0; total={5 * sb_user.TIB}",
+                )
 
             with self.assertRaises(urllib.error.HTTPError) as delete_admin:
                 request(f"{admin_base}/api/users/admin", "DELETE", None, write_headers)
@@ -382,6 +463,8 @@ rules:
             delete_admin.exception.close()
 
             with request(f"{admin_base}/api/users/bob", "DELETE", None, write_headers) as response:
+                self.assertEqual(response.status, 200)
+            with request(f"{admin_base}/api/users/shared", "DELETE", None, write_headers) as response:
                 self.assertEqual(response.status, 200)
             with contextlib.closing(sb_user.connect()) as conn:
                 self.assertIsNone(conn.execute("SELECT 1 FROM users WHERE username='bob'").fetchone())

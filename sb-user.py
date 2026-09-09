@@ -45,6 +45,10 @@ WEB_HOST = "127.0.0.1"
 WEB_PORT = int(os.environ.get("SB_USER_WEB_PORT", "18081"))
 DRY_RUN = os.environ.get("SB_USER_DRY_RUN") == "1"
 GIB = 1024 ** 3
+TIB = 1024 ** 4
+DEFAULT_SERVER_MONTHLY_QUOTA = 4 * TIB
+SERVER_QUOTA_META_KEY = "server_monthly_quota_bytes"
+TRAFFIC_MONTH_META_KEY = "traffic_cycle_month"
 PORT_MIN = 30000
 PORT_MAX = 39999
 TUIC_PORT_MIN = 40000
@@ -131,6 +135,14 @@ def connect() -> sqlite3.Connection:
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_tuic_port "
         "ON users(tuic_port) WHERE tuic_port > 0"
     )
+    conn.execute(
+        "INSERT OR IGNORE INTO meta(key,value) VALUES (?,?)",
+        (SERVER_QUOTA_META_KEY, str(DEFAULT_SERVER_MONTHLY_QUOTA)),
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO meta(key,value) VALUES (?,?)",
+        (TRAFFIC_MONTH_META_KEY, current_traffic_month()),
+    )
     conn.commit()
     try:
         os.chmod(DB_PATH, 0o600)
@@ -165,8 +177,86 @@ def parse_quota_gb(value: str) -> int:
     return quota_bytes
 
 
+def parse_server_quota_tb(value: str) -> int:
+    try:
+        amount = decimal.Decimal(value)
+    except decimal.InvalidOperation as exc:
+        raise ManagerError("服务器月流量必须是数字，单位为 TB。") from exc
+    if not amount.is_finite() or amount <= 0:
+        raise ManagerError("服务器月流量必须是大于 0 的有限数字，单位为 TB。")
+    quota_bytes = int(amount * TIB)
+    if quota_bytes > 2 ** 63 - 1:
+        raise ManagerError("服务器月流量上限过大。")
+    return quota_bytes
+
+
 def fmt_gb(value: int) -> str:
     return f"{value / GIB:.2f} GB"
+
+
+def fmt_traffic(value: int) -> str:
+    if value >= TIB:
+        return f"{value / TIB:.2f} TB"
+    return fmt_gb(value)
+
+
+def current_traffic_month() -> str:
+    return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m")
+
+
+def server_monthly_quota(conn: sqlite3.Connection) -> int:
+    row = conn.execute("SELECT value FROM meta WHERE key=?", (SERVER_QUOTA_META_KEY,)).fetchone()
+    try:
+        value = int(row["value"]) if row is not None else DEFAULT_SERVER_MONTHLY_QUOTA
+    except (TypeError, ValueError):
+        value = DEFAULT_SERVER_MONTHLY_QUOTA
+    if value <= 0 or value > 2 ** 63 - 1:
+        value = DEFAULT_SERVER_MONTHLY_QUOTA
+    conn.execute(
+        "INSERT INTO meta(key,value) VALUES (?,?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (SERVER_QUOTA_META_KEY, str(value)),
+    )
+    conn.commit()
+    return value
+
+
+def set_server_monthly_quota(conn: sqlite3.Connection, quota_bytes: int) -> None:
+    conn.execute(
+        "INSERT INTO meta(key,value) VALUES (?,?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (SERVER_QUOTA_META_KEY, str(quota_bytes)),
+    )
+    conn.commit()
+
+
+def subscription_usage(row: sqlite3.Row, everyone: list[sqlite3.Row], server_quota: int) -> dict[str, object]:
+    shared = bool(row["is_admin"]) or row["quota_bytes"] == 0
+    if shared:
+        upload = sum(item["upload_bytes"] for item in everyone)
+        download = sum(item["download_bytes"] for item in everyone)
+        total = server_quota
+    else:
+        upload = row["upload_bytes"]
+        download = row["download_bytes"]
+        total = row["quota_bytes"]
+    used = upload + download
+    return {
+        "upload_bytes": upload,
+        "download_bytes": download,
+        "used_bytes": used,
+        "total_bytes": total,
+        "remaining_bytes": max(total - used, 0),
+        "uses_server_quota": shared,
+    }
+
+
+def subscription_userinfo_header(row: sqlite3.Row, everyone: list[sqlite3.Row], server_quota: int) -> str:
+    usage = subscription_usage(row, everyone, server_quota)
+    return (
+        f"upload={usage['upload_bytes']}; download={usage['download_bytes']}; "
+        f"total={usage['total_bytes']}"
+    )
 
 
 def usage_status(row: sqlite3.Row, *, compact: bool = False) -> str:
@@ -326,16 +416,44 @@ def user_proxy_lines(row: sqlite3.Row, everyone: list[sqlite3.Row]) -> list[str]
     return result
 
 
-def usage_proxy_name(row: sqlite3.Row) -> str:
+def usage_proxy_name(row: sqlite3.Row, server_quota: int, server_remaining: int) -> str:
     """Return one display-only proxy name for one visible user's usage."""
     role = "管理员" if row["is_admin"] else "用户"
+    if row["quota_bytes"] == 0:
+        used = row["upload_bytes"] + row["download_bytes"]
+        state = "已停用 " if not row["enabled"] else ""
+        return (
+            f"📊 {role} {row['username']} {state}已用{fmt_traffic(used)} "
+            f"共享可用{fmt_traffic(server_remaining)} 月上限{fmt_traffic(server_quota)}"
+        )
     return f"📊 {role} {usage_status(row, compact=True)}"
 
 
-def add_usage_proxy_group(config: str, row: sqlite3.Row, everyone: list[sqlite3.Row]) -> str:
+def subscription_summary_proxy_name(
+    row: sqlite3.Row, everyone: list[sqlite3.Row], server_quota: int
+) -> str:
+    usage = subscription_usage(row, everyone, server_quota)
+    if usage["uses_server_quota"]:
+        return (
+            f"📊 月流量总计 已用{fmt_traffic(usage['used_bytes'])} "
+            f"可用{fmt_traffic(usage['remaining_bytes'])} 上限{fmt_traffic(usage['total_bytes'])}"
+        )
+    return usage_proxy_name(row, server_quota, max(server_quota - usage["used_bytes"], 0))
+
+
+def add_usage_proxy_group(
+    config: str, row: sqlite3.Row, everyone: list[sqlite3.Row], server_quota: int
+) -> str:
     """Insert one fixed usage group backed only by local direct display items."""
-    visible_users = everyone if row["is_admin"] else [row]
-    names = [usage_proxy_name(item) for item in visible_users]
+    usage = subscription_usage(row, everyone, server_quota)
+    if usage["uses_server_quota"]:
+        names = [subscription_summary_proxy_name(row, everyone, server_quota)]
+        names.extend(
+            usage_proxy_name(item, server_quota, usage["remaining_bytes"])
+            for item in everyone
+        )
+    else:
+        names = [subscription_summary_proxy_name(row, everyone, server_quota)]
     display_proxies = "".join(
         f"  - name: {yaml_quote(name)}\n"
         "    type: direct\n"
@@ -369,6 +487,7 @@ def render_subscriptions(conn: sqlite3.Connection) -> None:
     template = template_path.read_text(encoding="utf-8")
     base_url = subscription_base_url()
     everyone = all_users(conn)
+    monthly_quota = server_monthly_quota(conn)
     USERS_DIR.mkdir(parents=True, exist_ok=True)
     os.chmod(USERS_DIR, 0o700)
     valid_tokens = {row["token"] for row in everyone}
@@ -388,7 +507,7 @@ def render_subscriptions(conn: sqlite3.Connection) -> None:
             template,
         )
         config = re.sub(r"(?m)^(\s*interval:)\s*3600\s*$", r"\1 300", config)
-        config = add_usage_proxy_group(config, row, everyone)
+        config = add_usage_proxy_group(config, row, everyone, monthly_quota)
         proxies = "proxies:\n" + "\n".join(user_proxy_lines(row, everyone)) + "\n"
         atomic_write(user_dir / "clash-campus-free", config)
         atomic_write(user_dir / "proxies", proxies)
@@ -635,7 +754,30 @@ def read_counters() -> tuple[dict[int, dict[str, int]], set[tuple[int, str]]]:
     return totals, seen
 
 
+def rollover_monthly_usage(conn: sqlite3.Connection) -> bool:
+    """Reset monthly usage once when the UTC calendar month changes."""
+    current = current_traffic_month()
+    row = conn.execute("SELECT value FROM meta WHERE key=?", (TRAFFIC_MONTH_META_KEY,)).fetchone()
+    previous = row["value"] if row is not None else current
+    if previous == current:
+        return False
+    conn.execute(
+        """UPDATE users SET upload_bytes=0,download_bytes=0,
+           last_upload_counter=0,last_download_counter=0,updated_at=?""",
+        (now_iso(),),
+    )
+    conn.execute(
+        "INSERT INTO meta(key,value) VALUES (?,?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (TRAFFIC_MONTH_META_KEY, current),
+    )
+    conn.commit()
+    sync_counter_rules(conn)
+    return True
+
+
 def collect_usage(conn: sqlite3.Connection, *, render: bool = True) -> None:
+    rollover_monthly_usage(conn)
     counters, seen = read_counters()
     users = active_users(conn)
     for row in users:
@@ -889,9 +1031,12 @@ def cmd_cleanup(conn: sqlite3.Connection, _args: argparse.Namespace) -> None:
     remove_counter_rules()
 
 
-def web_user_payload(row: sqlite3.Row) -> dict[str, object]:
+def web_user_payload(
+    row: sqlite3.Row, everyone: list[sqlite3.Row], monthly_quota: int
+) -> dict[str, object]:
     used = row["upload_bytes"] + row["download_bytes"]
     quota = row["quota_bytes"]
+    display = subscription_usage(row, everyone, monthly_quota)
     return {
         "username": row["username"],
         "is_admin": bool(row["is_admin"]),
@@ -904,6 +1049,10 @@ def web_user_payload(row: sqlite3.Row) -> dict[str, object]:
         "quota_bytes": quota,
         "remaining_bytes": max(quota - used, 0) if quota else 0,
         "quota_gb": round(quota / GIB, 6),
+        "display_used_bytes": display["used_bytes"],
+        "display_total_bytes": display["total_bytes"],
+        "display_remaining_bytes": display["remaining_bytes"],
+        "uses_server_quota": display["uses_server_quota"],
         "subscription": user_link(row),
     }
 
@@ -911,18 +1060,24 @@ def web_user_payload(row: sqlite3.Row) -> dict[str, object]:
 def web_users_payload(conn: sqlite3.Connection, admin: sqlite3.Row) -> dict[str, object]:
     collect_usage(conn)
     rows = all_users(conn)
+    monthly_quota = server_monthly_quota(conn)
     total_up = sum(row["upload_bytes"] for row in rows)
     total_down = sum(row["download_bytes"] for row in rows)
+    total_used = total_up + total_down
     return {
         "admin": admin["username"],
         "refreshed_at": now_iso(),
+        "traffic_month": current_traffic_month(),
+        "server_monthly_quota_bytes": monthly_quota,
+        "server_monthly_quota_tb": round(monthly_quota / TIB, 6),
+        "server_monthly_remaining_bytes": max(monthly_quota - total_used, 0),
         "totals": {
             "user_count": len(rows),
             "upload_bytes": total_up,
             "download_bytes": total_down,
-            "used_bytes": total_up + total_down,
+            "used_bytes": total_used,
         },
-        "users": [web_user_payload(row) for row in rows],
+        "users": [web_user_payload(row, rows, monthly_quota) for row in rows],
     }
 
 
@@ -935,7 +1090,9 @@ class AdminWebHandler(http.server.BaseHTTPRequestHandler):
     server_version = "sb-user-admin"
     sys_version = ""
     max_body_bytes = 4096
-    route_re = re.compile(r"^/user/([a-f0-9]{64})/(page|api(?:/.*)?)$")
+    route_re = re.compile(
+        r"^/user/([a-f0-9]{64})/(page|clash-campus-free|proxies|api(?:/.*)?)$"
+    )
 
     def log_message(self, _format: str, *_args: object) -> None:
         # URL paths contain administrator credentials. Never copy them to logs.
@@ -954,10 +1111,18 @@ class AdminWebHandler(http.server.BaseHTTPRequestHandler):
             "frame-ancestors 'none'",
         )
 
-    def _send_bytes(self, status: int, body: bytes, content_type: str) -> None:
+    def _send_bytes(
+        self,
+        status: int,
+        body: bytes,
+        content_type: str,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         self.send_response(status)
         self._security_headers()
         self.send_header("Content-Type", content_type)
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -980,6 +1145,12 @@ class AdminWebHandler(http.server.BaseHTTPRequestHandler):
         row = conn.execute("SELECT * FROM users WHERE token=?", (token,)).fetchone()
         if row is None or not row["is_admin"]:
             raise WebRequestError(403, "管理员令牌无效或无权访问。")
+        return row
+
+    def _authenticate_subscription(self, conn: sqlite3.Connection, token: str) -> sqlite3.Row:
+        row = conn.execute("SELECT * FROM users WHERE token=?", (token,)).fetchone()
+        if row is None or not row["enabled"]:
+            raise WebRequestError(403, "订阅令牌无效或用户已停用。")
         return row
 
     def _json_body(self) -> dict[str, object]:
@@ -1027,6 +1198,30 @@ class AdminWebHandler(http.server.BaseHTTPRequestHandler):
 
     def _dispatch(self) -> None:
         token, resource = self._route()
+        if self.command == "GET" and resource in {"clash-campus-free", "proxies"}:
+            with process_lock():
+                with contextlib.closing(connect()) as conn:
+                    row = self._authenticate_subscription(conn, token)
+                    collect_usage(conn)
+                    row = conn.execute("SELECT * FROM users WHERE id=?", (row["id"],)).fetchone()
+                    everyone = all_users(conn)
+                    monthly_quota = server_monthly_quota(conn)
+                    target = USERS_DIR / token / resource
+                    if not target.is_file():
+                        raise WebRequestError(404, "订阅文件不存在，请运行 sb-user render。")
+                    self._send_bytes(
+                        200,
+                        target.read_bytes(),
+                        "text/yaml; charset=utf-8",
+                        {
+                            "Subscription-Userinfo": subscription_userinfo_header(
+                                row, everyone, monthly_quota
+                            ),
+                            "Profile-Update-Interval": "1",
+                        },
+                    )
+            return
+
         if self.command == "GET" and resource == "page":
             with self._admin_connection(token):
                 if not ADMIN_PAGE_PATH.is_file():
@@ -1052,6 +1247,18 @@ class AdminWebHandler(http.server.BaseHTTPRequestHandler):
                     raise WebRequestError(409, "用户已存在。")
                 self._quiet_call(cmd_add, conn, argparse.Namespace(username=username, quota_gb=str(quota_gb)))
             self._send_json(201, {"ok": True})
+            return
+
+        if resource == "api/server-quota" and self.command == "PATCH":
+            data = self._json_body()
+            quota_tb = data.get("quota_tb")
+            if isinstance(quota_tb, bool) or not isinstance(quota_tb, (str, int, float)):
+                raise WebRequestError(400, "服务器月流量必须是数字，单位为 TB。")
+            quota_bytes = parse_server_quota_tb(str(quota_tb))
+            with self._admin_connection(token) as (conn, _admin):
+                set_server_monthly_quota(conn, quota_bytes)
+                render_subscriptions(conn)
+            self._send_json(200, {"ok": True})
             return
 
         match = re.fullmatch(r"api/users/([^/]+)/(quota|status)", resource)

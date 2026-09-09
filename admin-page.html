@@ -27,7 +27,7 @@
     button { cursor: pointer; }
     button:disabled { cursor: not-allowed; opacity: .48; }
     .shell { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 28px 0 48px; }
-    .topbar,.brand,.auth,.panel-head,.actions,.dialog-actions,.user-cell,.protocols { display: flex; align-items: center; }
+    .topbar,.brand,.auth,.top-actions,.metric-head,.panel-head,.actions,.dialog-actions,.user-cell,.protocols { display: flex; align-items: center; }
     .topbar { justify-content: space-between; gap: 20px; margin-bottom: 24px; }
     .brand { gap: 12px; }
     .logo { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; color: #fff; background: var(--primary); font-size: 19px; }
@@ -35,9 +35,11 @@
     .subtitle { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
     .auth { gap: 8px; color: var(--good); font-size: 13px; white-space: nowrap; }
     .auth::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-    .metrics { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 14px; margin-bottom: 22px; }
+    .top-actions { gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+    .metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; margin-bottom: 22px; }
     .metric,.panel { background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
     .metric { padding: 17px; border-radius: 14px; }
+    .metric-head { justify-content: space-between; gap: 8px; }
     .metric-label { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
     .metric-value { font-size: 23px; font-weight: 650; font-variant-numeric: tabular-nums; }
     .panel { border-radius: 16px; overflow: hidden; }
@@ -91,6 +93,7 @@
     @media (max-width:560px) {
       .shell { width: min(100% - 24px,1180px); padding-top: 18px; }
       .topbar,.panel-head { align-items: stretch; flex-direction: column; }
+      .top-actions { justify-content: flex-start; }
       .auth { align-self: flex-start; }
       .metrics { grid-template-columns: 1fr; gap: 10px; }
       .panel-head .button { width: 100%; }
@@ -101,15 +104,17 @@
   <main class="shell">
     <header class="topbar">
       <div class="brand"><div class="logo" aria-hidden="true">◇</div><div><h1>流量管理控制台</h1><p class="subtitle"><span id="page-path">管理员专属页面</span> · <span id="updated">正在连接</span></p></div></div>
-      <div class="auth" id="admin-name">管理员验证中</div>
+      <div class="top-actions"><div class="auth" id="admin-name">管理员验证中</div><button class="button small" id="server-quota-button" type="button">设置月流量</button></div>
     </header>
 
     <div class="error-panel" id="error-panel" role="alert"></div>
     <section class="metrics" aria-label="整体流量摘要">
       <article class="metric"><div class="metric-label">用户数量</div><div class="metric-value" id="user-count">—</div></article>
-      <article class="metric"><div class="metric-label">累计上传</div><div class="metric-value" id="total-upload">—</div></article>
-      <article class="metric"><div class="metric-label">累计下载</div><div class="metric-value" id="total-download">—</div></article>
-      <article class="metric"><div class="metric-label">总计已用</div><div class="metric-value" id="total-used">—</div></article>
+      <article class="metric"><div class="metric-head"><div class="metric-label">服务器月流量上限</div><div class="secondary" id="traffic-month">—</div></div><div class="metric-value" id="server-quota">—</div></article>
+      <article class="metric"><div class="metric-label">服务器月流量可用</div><div class="metric-value" id="server-remaining">—</div></article>
+      <article class="metric"><div class="metric-label">本月上传</div><div class="metric-value" id="total-upload">—</div></article>
+      <article class="metric"><div class="metric-label">本月下载</div><div class="metric-value" id="total-download">—</div></article>
+      <article class="metric"><div class="metric-label">本月总计已用</div><div class="metric-value" id="total-used">—</div></article>
     </section>
 
     <section class="panel" aria-labelledby="users-title">
@@ -136,6 +141,14 @@
   <dialog id="delete-dialog">
     <div class="dialog-body"><h2 class="dialog-title">删除用户</h2><p class="dialog-copy" id="delete-copy"></p><div class="dialog-actions"><button class="button" data-close="delete-dialog" type="button">取消</button><button class="button danger" id="delete-confirm" type="button">确认删除</button></div></div>
   </dialog>
+  <dialog id="server-quota-dialog">
+    <form class="dialog-body" id="server-quota-form">
+      <h2 class="dialog-title">设置服务器月流量</h2>
+      <p class="dialog-copy">这是所有不限额用户和管理员订阅共同显示的总流量上限。每个自然月自动重新统计，默认 4 TB。</p>
+      <div class="field"><label for="server-quota-input">月流量上限（TB）</label><input id="server-quota-input" type="number" min="0.01" step="0.01" value="4" inputmode="decimal" required><div class="help">必须大于 0；修改后会立即更新网页、订阅进度条和整体流量检测组</div></div>
+      <div class="dialog-actions"><button class="button" data-close="server-quota-dialog" type="button">取消</button><button class="button primary" type="submit">保存设置</button></div>
+    </form>
+  </dialog>
   <div class="toast" id="toast" aria-live="polite"></div>
 
   <script>
@@ -145,6 +158,7 @@
       const usersBody = $('#users');
       const editDialog = $('#edit-dialog');
       const deleteDialog = $('#delete-dialog');
+      const serverQuotaDialog = $('#server-quota-dialog');
       const editForm = $('#edit-form');
       const state = { users: [], editing: null, deleting: null, busy: false };
       let toastTimer;
@@ -171,8 +185,12 @@
       }
       function render(data) {
         state.users = data.users || [];
+        state.serverQuotaTb = data.server_monthly_quota_tb;
         $('#admin-name').textContent = `管理员 ${data.admin}`;
         $('#user-count').textContent = data.totals.user_count;
+        $('#server-quota').textContent = formatBytes(data.server_monthly_quota_bytes);
+        $('#server-remaining').textContent = formatBytes(data.server_monthly_remaining_bytes);
+        $('#traffic-month').textContent = `${data.traffic_month} UTC`;
         $('#total-upload').textContent = formatBytes(data.totals.upload_bytes);
         $('#total-download').textContent = formatBytes(data.totals.download_bytes);
         $('#total-used').textContent = formatBytes(data.totals.used_bytes);
@@ -180,7 +198,9 @@
         $('#page-path').textContent = location.pathname.replace(/[a-f0-9]{64}/, token => `${token.slice(0,6)}…${token.slice(-6)}`);
         if (!state.users.length) { usersBody.innerHTML = '<tr><td colspan="7" class="empty">暂无用户</td></tr>'; return; }
         usersBody.innerHTML = state.users.map(user => {
-          const percent = user.quota_bytes ? Math.min(100, user.used_bytes / user.quota_bytes * 100) : 0;
+          const displayTotal = user.display_total_bytes;
+          const displayUsed = user.display_used_bytes;
+          const percent = displayTotal ? Math.min(100, displayUsed / displayTotal * 100) : 0;
           const level = percent >= 100 ? 'over' : percent >= 80 ? 'warning' : '';
           const ports = [`Hysteria2 ${user.hysteria2_port}`]; if (user.tuic_port) ports.push(`TUIC ${user.tuic_port}`);
           return `<tr>
@@ -188,7 +208,7 @@
             <td><span class="status ${user.enabled ? '' : 'disabled'}">${user.enabled ? '● 启用' : '○ 停用'}</span></td>
             <td><div class="protocols">${ports.map(port => `<span class="protocol">${escapeHtml(port)}</span>`).join('')}</div></td>
             <td class="number">${formatBytes(user.upload_bytes)}</td><td class="number">${formatBytes(user.download_bytes)}</td>
-            <td><div class="quota"><div class="quota-text"><span>${formatBytes(user.used_bytes)}</span><span>${user.quota_bytes ? formatBytes(user.quota_bytes) : '不限量'}</span></div>${user.quota_bytes ? `<div class="track"><div class="bar ${level}" style="width:${percent}%"></div></div><div class="secondary">可用 ${formatBytes(user.remaining_bytes)}</div>` : '<div class="secondary">无流量上限</div>'}</div></td>
+            <td><div class="quota"><div class="quota-text"><span>${formatBytes(displayUsed)}</span><span>${formatBytes(displayTotal)}</span></div><div class="track"><div class="bar ${level}" style="width:${percent}%"></div></div><div class="secondary">${user.uses_server_quota ? '共享服务器月流量' : '个人限额'} · 可用 ${formatBytes(user.display_remaining_bytes)}</div></div></td>
             <td><div class="actions"><button class="button small" data-action="copy" data-user="${escapeHtml(user.username)}">订阅</button><button class="button small" data-action="quota" data-user="${escapeHtml(user.username)}">额度</button><button class="button small" data-action="toggle" data-user="${escapeHtml(user.username)}" ${user.is_admin ? 'disabled' : ''}>${user.enabled ? '停用' : '启用'}</button><button class="button small danger" data-action="delete" data-user="${escapeHtml(user.username)}" ${user.is_admin ? 'disabled' : ''}>删除</button></div></td>
           </tr>`;
         }).join('');
@@ -216,11 +236,16 @@
         catch (_) { const area = document.createElement('textarea'); area.value = user.subscription; document.body.append(area); area.select(); document.execCommand('copy'); area.remove(); toast(`${user.username} 的订阅地址已复制`); }
       }
       $('#add-user').addEventListener('click', openCreate);
+      $('#server-quota-button').addEventListener('click', () => { $('#server-quota-input').value = state.serverQuotaTb || 4; serverQuotaDialog.showModal(); $('#server-quota-input').focus(); });
       document.querySelectorAll('[data-close]').forEach(button => button.addEventListener('click', () => $(`#${button.dataset.close}`).close()));
       editForm.addEventListener('submit', async event => {
         event.preventDefault(); const quota = $('#quota').value;
         if (state.editing) { if (await mutate(`/users/${encodeURIComponent(state.editing)}/quota`, 'PATCH', { quota_gb: quota }, `${state.editing} 的额度已更新`)) editDialog.close(); }
         else { const username = $('#username').value.trim(); if (await mutate('/users', 'POST', { username, quota_gb: quota }, `用户 ${username} 已创建`)) editDialog.close(); }
+      });
+      $('#server-quota-form').addEventListener('submit', async event => {
+        event.preventDefault(); const quotaTb = $('#server-quota-input').value;
+        if (await mutate('/server-quota', 'PATCH', { quota_tb: quotaTb }, '服务器月流量上限已更新')) serverQuotaDialog.close();
       });
       usersBody.addEventListener('click', async event => {
         const button = event.target.closest('[data-action]'); if (!button) return;
@@ -231,7 +256,7 @@
         if (button.dataset.action === 'delete') { state.deleting = user.username; $('#delete-copy').textContent = `删除 ${user.username} 后，其订阅地址和双协议凭据将立即失效，此操作不可撤销。`; deleteDialog.showModal(); }
       });
       $('#delete-confirm').addEventListener('click', async () => { if (await mutate(`/users/${encodeURIComponent(state.deleting)}`, 'DELETE', undefined, `用户 ${state.deleting} 已删除`)) deleteDialog.close(); });
-      load(); setInterval(() => { if (!editDialog.open && !deleteDialog.open) load(false); }, 30000);
+      load(); setInterval(() => { if (!editDialog.open && !deleteDialog.open && !serverQuotaDialog.open) load(false); }, 30000);
     })();
   </script>
 </body>
