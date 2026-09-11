@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # 当前脚本版本号
-VERSION='v1.8.4-campus (2026.09.11)'
+VERSION='v1.8.5-campus (2026.09.11)'
 
 # Github 反代加速代理
 GITHUB_PROXY=('https://hub.glowp.xyz/' 'https://proxy.vvvv.ee/')
@@ -2171,6 +2171,9 @@ YWxvZy5vcGVuICYmICFkZWxldGVEaWFsb2cub3BlbiAmJiAhc2VydmVyUXVvdGFEaWFsb2cub3Bl
 bikgbG9hZChmYWxzZSk7IH0sIDMwMDAwKTsKICAgIH0pKCk7CiAgPC9zY3JpcHQ+CjwvYm9keT4K
 PC9odG1sPgo=
 SB_USER_ADMIN_PAGE_B64
+  # 独立脚本内置网页模板后，补齐用户表的上传、下载与总流量三列。
+  # replace 仅匹配旧版片段，重复执行安装/升级也是安全的。
+  python3 -c 'from pathlib import Path; import sys; p=Path(sys.argv[1]); s=p.read_text(encoding="utf-8"); s=s.replace("min-width: 940px", "min-width: 1020px").replace("<th>下载</th><th>已用 / 限额</th>", "<th>下载</th><th>总流量</th><th>已用 / 限额</th>").replace("colspan=\"7\" class=\"loading\"", "colspan=\"8\" class=\"loading\"").replace("colspan=\"7\" class=\"empty\"", "colspan=\"8\" class=\"empty\"").replace("<td class=\"number\">${formatBytes(user.upload_bytes)}</td><td class=\"number\">${formatBytes(user.download_bytes)}</td>\\n            <td><div class=\"quota\">", "<td class=\"number\">${formatBytes(user.upload_bytes)}</td><td class=\"number\">${formatBytes(user.download_bytes)}</td><td class=\"number\">${formatBytes(user.used_bytes)}</td>\\n            <td><div class=\"quota\">"); p.write_text(s, encoding="utf-8")' "${WORK_DIR}/admin-page.html"
   chmod 700 "${WORK_DIR}/sb-user.py"
   chmod 600 "${WORK_DIR}/admin-page.html"
   ln -sf "${WORK_DIR}/sb-user.py" /usr/bin/sb-user

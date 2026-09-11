@@ -140,6 +140,12 @@ rules:
         self.assertIn('"$ARGO_DAEMON_FILE"', shell)
         self.assertIn('$(text 197) ${REINSTALL_BACKUP_DIR}', shell)
 
+        admin_page = SCRIPT.with_name("admin-page.html").read_text(encoding="utf-8")
+        self.assertIn("<th>总流量</th>", admin_page)
+        self.assertIn("formatBytes(user.used_bytes)", admin_page)
+        self.assertIn("<th>总流量</th>", shell)
+        self.assertIn("formatBytes(user.used_bytes)", shell)
+
         export_start = shell.index("\nexport_list() {")
         export_end = shell.index("\n# 创建快捷方式", export_start)
         export_body = shell[export_start:export_end]

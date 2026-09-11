@@ -53,7 +53,7 @@
     .button.danger { color: var(--danger); }
     .button.small { min-height: 32px; padding: 5px 9px; font-size: 12px; }
     .table-wrap { overflow-x: auto; }
-    table { width: 100%; min-width: 940px; border-collapse: collapse; }
+    table { width: 100%; min-width: 1020px; border-collapse: collapse; }
     th { padding: 12px 13px; background: var(--surface-2); color: var(--muted); text-align: left; font-size: 12px; font-weight: 600; }
     td { padding: 15px 13px; border-top: 1px solid var(--line); font-size: 13px; vertical-align: middle; }
     tbody tr:first-child td { border-top: 0; }
@@ -121,8 +121,8 @@
       <div class="panel-head"><div><h2 id="users-title">用户与额度</h2><p class="panel-note">Hysteria2 与 TUIC 流量合并统计；额度 0 GB 表示不限量</p></div><button class="button primary" id="add-user" type="button">＋ 新建用户</button></div>
       <div class="table-wrap">
         <table aria-label="用户流量和限额">
-          <thead><tr><th>用户</th><th>状态</th><th>协议与端口</th><th>上传</th><th>下载</th><th>已用 / 限额</th><th style="text-align:right">管理</th></tr></thead>
-          <tbody id="users"><tr><td colspan="7" class="loading">正在读取用户数据…</td></tr></tbody>
+          <thead><tr><th>用户</th><th>状态</th><th>协议与端口</th><th>上传</th><th>下载</th><th>总流量</th><th>已用 / 限额</th><th style="text-align:right">管理</th></tr></thead>
+          <tbody id="users"><tr><td colspan="8" class="loading">正在读取用户数据…</td></tr></tbody>
         </table>
       </div>
     </section>
@@ -196,7 +196,7 @@
         $('#total-used').textContent = formatBytes(data.totals.used_bytes);
         $('#updated').textContent = `更新于 ${new Date(data.refreshed_at).toLocaleTimeString()}`;
         $('#page-path').textContent = location.pathname.replace(/[a-f0-9]{64}/, token => `${token.slice(0,6)}…${token.slice(-6)}`);
-        if (!state.users.length) { usersBody.innerHTML = '<tr><td colspan="7" class="empty">暂无用户</td></tr>'; return; }
+        if (!state.users.length) { usersBody.innerHTML = '<tr><td colspan="8" class="empty">暂无用户</td></tr>'; return; }
         usersBody.innerHTML = state.users.map(user => {
           const displayTotal = user.display_total_bytes;
           const displayUsed = user.display_used_bytes;
@@ -207,7 +207,7 @@
             <td><div class="user-cell"><div class="avatar">${escapeHtml(user.username.slice(0,1).toUpperCase())}</div><div><div class="username">${escapeHtml(user.username)}</div><div class="role">${user.is_admin ? '管理员' : '普通用户'}</div></div></div></td>
             <td><span class="status ${user.enabled ? '' : 'disabled'}">${user.enabled ? '● 启用' : '○ 停用'}</span></td>
             <td><div class="protocols">${ports.map(port => `<span class="protocol">${escapeHtml(port)}</span>`).join('')}</div></td>
-            <td class="number">${formatBytes(user.upload_bytes)}</td><td class="number">${formatBytes(user.download_bytes)}</td>
+            <td class="number">${formatBytes(user.upload_bytes)}</td><td class="number">${formatBytes(user.download_bytes)}</td><td class="number">${formatBytes(user.used_bytes)}</td>
             <td><div class="quota"><div class="quota-text"><span>${formatBytes(displayUsed)}</span><span>${formatBytes(displayTotal)}</span></div><div class="track"><div class="bar ${level}" style="width:${percent}%"></div></div><div class="secondary">${user.uses_server_quota ? '共享服务器月流量' : '个人限额'} · 可用 ${formatBytes(user.display_remaining_bytes)}</div></div></td>
             <td><div class="actions"><button class="button small" data-action="copy" data-user="${escapeHtml(user.username)}">订阅</button><button class="button small" data-action="quota" data-user="${escapeHtml(user.username)}">额度</button><button class="button small" data-action="toggle" data-user="${escapeHtml(user.username)}" ${user.is_admin ? 'disabled' : ''}>${user.enabled ? '停用' : '启用'}</button><button class="button small danger" data-action="delete" data-user="${escapeHtml(user.username)}" ${user.is_admin ? 'disabled' : ''}>删除</button></div></td>
           </tr>`;
