@@ -1,4 +1,5 @@
 import argparse
+import base64
 import contextlib
 import importlib.util
 import json
@@ -141,10 +142,15 @@ rules:
         self.assertIn('$(text 197) ${REINSTALL_BACKUP_DIR}', shell)
 
         admin_page = SCRIPT.with_name("admin-page.html").read_text(encoding="utf-8")
-        self.assertIn("个人总流量</th>", admin_page)
+        self.assertIn("个人已用</th><th>总流量</th>", admin_page)
         self.assertIn("formatBytes(user.used_bytes)", admin_page)
-        self.assertIn("个人总流量</th>", shell)
-        self.assertIn("formatBytes(user.used_bytes)", shell)
+        embedded_page = re.search(
+            r"<< 'SB_USER_ADMIN_PAGE_B64'\n(.*?)\nSB_USER_ADMIN_PAGE_B64", shell, re.S
+        )
+        self.assertIsNotNone(embedded_page)
+        self.assertEqual(
+            base64.b64decode(embedded_page.group(1)).decode("utf-8"), admin_page
+        )
 
         export_start = shell.index("\nexport_list() {")
         export_end = shell.index("\n# 创建快捷方式", export_start)
