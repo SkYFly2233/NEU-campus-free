@@ -181,13 +181,13 @@ rules:
 
         shell = SCRIPT.with_name("sing-box.sh").read_text(encoding="utf-8")
         self.assertIn(
-            "proxies: [DIRECT, '♻️ 自动选择', '🚀 节点选择']",
-            shell,
-        )
-        self.assertIn(
             "proxies: ['♻️ 自动选择', '🚀 节点选择']",
             shell,
         )
+        self.assertIn("CAMPUS_DIRECT_DOMAINS=''", shell)
+        self.assertIn("DOMAIN-SUFFIX,${_domain},DIRECT", shell)
+        self.assertNotIn("IP-CIDR6,::/0,🌐 IPv6代理组", shell)
+        self.assertIn("其余所有公网地址（包括 IPv4 与 IPv6）→ 免流节点", shell)
 
     def test_adds_distinct_users_and_renders_admin_summary(self):
         conn = sb_user.connect()

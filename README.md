@@ -267,10 +267,6 @@ http://132.xx.xx.123:xxxxx/9xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxe0/
 
    ![image-20260909160223056](images/image-20260909160223056.png)
 
-   IPv6代理组，这里是指纯ipv6的网站走不走代理，一般选DIRECT就好，不花流量。
-
-   ![image-20260909160339113](images/image-20260909160339113.png)
-
    免流节点，这里是指的，免流从哪里走。如果选自动选择，那就是延迟最低的节点。如果选节点选择，那就是节点选择里面的主节点。或者选其他的，但是选ipv6的节点才能免流。
 
    ![image-20260909160409217](images/image-20260909160409217.png)
@@ -279,7 +275,9 @@ http://132.xx.xx.123:xxxxx/9xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxe0/
 
    ![image-20260909160612474](images/image-20260909160612474.png)
 
-   > **建议第一次使用时保持以下选择：**“免流节点”选“自动选择”，“IPv6代理组”选 `DIRECT`，“全球拦截”选 `REJECT`。“整体流量检测”只负责展示用量，不是真实代理出口，点开查看即可。Clash 可能记住上一次选择，更新订阅后应再次确认“免流节点”没有停留在 IPv4 节点上。
+   > **建议第一次使用时保持以下选择：**“免流节点”选“自动选择”，“全球拦截”选 `REJECT`。“整体流量检测”只负责展示用量，不是真实代理出口，点开查看即可。Clash 可能记住上一次选择，更新订阅后应再次确认“免流节点”没有停留在 IPv4 节点上。
+
+   > **新版分流逻辑：**除校园/内网 IPv4 和白名单域名外，所有网站不论 DNS 返回 IPv4 还是 IPv6，都会走“免流节点”。这避免双栈网站被解析为 IPv6 后错误直连。白名单默认为空；如部署时需要让 `neu.edu.cn` 及其子域名直连，可在安装命令末尾增加：`--CAMPUS_DIRECT_DOMAINS neu.edu.cn`。多个域名用英文逗号分隔，例如 `neu.edu.cn,example.edu.cn`；也可填完整的 `https://neu.edu.cn/path`，脚本会只提取其中的域名。该设置会保存在服务器上，之后用 `-N` 重建订阅时不会被清空。
 
    
 

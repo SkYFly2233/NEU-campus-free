@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # 当前脚本版本号
-VERSION='v1.8.3-campus (2026.09.09)'
+VERSION='v1.8.4-campus (2026.09.11)'
 
 # Github 反代加速代理
 GITHUB_PROXY=('https://hub.glowp.xyz/' 'https://proxy.vvvv.ee/')
@@ -30,6 +30,8 @@ TOTAL_STEPS=''  # 总步骤数（协议确定后动态计算）
 DETECTED_IPS=() # 检测到的本机所有静态 IPv4/IPv6 地址
 SERVER_IPS=()   # 用户确认后的连接目标 IP 列表（多 IP）
 CAMPUS_DIRECT_CIDR="202.118.0.0/19,202.199.0.0/20,210.30.192.0/20,219.216.64.0/18,58.154.160.0/19,58.154.192.0/18,118.202.0.0/19,118.202.32.0/20"   # 校园网内网直连网段（默认，可用 --CAMPUS_DIRECT_CIDR 覆盖）
+CAMPUS_DIRECT_DOMAINS='' # 域名白名单：白名单及其子域名直连（逗号分隔，可用 --CAMPUS_DIRECT_DOMAINS 覆盖）
+CAMPUS_DIRECT_DOMAINS_EXPLICIT=false
 SUBSCRIBE_TOKEN='' # 订阅 URL 的独立随机凭据；不复用节点 UUID
 
 export DEBIAN_FRONTEND=noninteractive
@@ -6901,6 +6903,17 @@ export_list() {
 
   check_install status_only
 
+  # 白名单是安装配置的一部分；升级或执行 -N 重新生成订阅时必须保留，
+  # 否则未再次传参会意外清空用户已设置的直连域名。
+  local CAMPUS_DIRECT_DOMAINS_FILE="${WORK_DIR}/users/campus-direct-domains"
+  if [ "$CAMPUS_DIRECT_DOMAINS_EXPLICIT" = true ]; then
+    mkdir -p "${WORK_DIR}/users"
+    printf '%s\n' "$CAMPUS_DIRECT_DOMAINS" > "$CAMPUS_DIRECT_DOMAINS_FILE"
+    chmod 600 "$CAMPUS_DIRECT_DOMAINS_FILE"
+  elif [ -s "$CAMPUS_DIRECT_DOMAINS_FILE" ]; then
+    IFS= read -r CAMPUS_DIRECT_DOMAINS < "$CAMPUS_DIRECT_DOMAINS_FILE"
+  fi
+
   [ "$IS_INSTALL" != 'install' ] && fetch_nodes_value
   [ "$IS_SUB" = 'is_sub' ] && ensure_subscribe_token
   # 升级已有 Hysteria2 安装时，-N 同样要撤销旧的公共 Nginx 路由；
@@ -7140,11 +7153,27 @@ export_list() {
     rm -f ${TEMP_DIR}/clash{,2}
   } &>/dev/null
 
-  # 生成校园网免流 Clash 订阅（仅 Clash 客户端：redir-host + IP-CIDR6 分流 + 自动选择只测 IPv6 节点）
+  # 生成校园网免流 Clash 订阅。
+  # 公网地址不再按 DNS 返回的 A/AAAA 记录分流：除直连网段和域名白名单外，一律走免流节点。
   if [ "$IS_SUB" = 'is_sub' ]; then
-    local CAMPUS_RULES="" _cidr
+    local CAMPUS_RULES="" CAMPUS_DOMAIN_RULES="" _cidr _domain
     for _cidr in ${CAMPUS_DIRECT_CIDR//,/ }; do
       CAMPUS_RULES+="  - IP-CIDR,${_cidr},DIRECT"$'\n'
+    done
+    # 仅接受域名，避免把用户传入的内容直接写进 YAML 规则。DOMAIN-SUFFIX 会匹配该域名及其全部子域名。
+    for _domain in ${CAMPUS_DIRECT_DOMAINS//,/ }; do
+      _domain=${_domain,,}
+      # 允许用户传入域名，也允许误填完整 URL；路径和端口不参与 Clash 的域名匹配。
+      _domain=${_domain#http://}
+      _domain=${_domain#https://}
+      _domain=${_domain%%/*}
+      _domain=${_domain%%:*}
+      _domain=${_domain#.}
+      if [[ "$_domain" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$ ]]; then
+        CAMPUS_DOMAIN_RULES+="  - DOMAIN-SUFFIX,${_domain},DIRECT"$'\n'
+      else
+        warning "忽略无效的校园网直连域名：${_domain}（请填写域名或 http(s) URL，例如 neu.edu.cn）"
+      fi
     done
     cat > ${WORK_DIR}/subscribe/clash-campus-free << EOF
 mixed-port: 7890
@@ -7172,7 +7201,7 @@ sniffer:
       ports: [443, 8443]
       override-destination: true
 
-# 校园网免流：redir-host 模式（必须，否则 IP-CIDR6 分不清 IPv4/IPv6）
+# 校园网免流：保留域名以命中白名单；公网 IPv4/IPv6 不再依赖 DNS 结果分流。
 dns:
   enable: true
   ipv6: true
@@ -7224,7 +7253,7 @@ rule-providers:
 
 proxies:
 
-# 四个代理组
+# 三个代理组
 proxy-groups:
   # 1. 节点选择：直接手动选择真实节点，不再嵌套“自动选择”子组
   - name: 🚀 节点选择
@@ -7239,36 +7268,29 @@ proxy-groups:
     tolerance: 50
     use: ['仅IPv6节点']
 
-  # 3. IPv6 代理组：直连优先，其次自动选择、节点选择，再列出 IPv6/IPv4 真实节点
-  - name: 🌐 IPv6代理组
-    type: select
-    proxies: [DIRECT, '♻️ 自动选择', '🚀 节点选择']
-    use: ['所有节点']
-
-  # 4. 免流节点：自动选择优先，其次节点选择，再列出 IPv6/IPv4 真实节点
+  # 3. 免流节点：自动选择优先，其次节点选择，再列出 IPv6/IPv4 真实节点
   - name: 🆓 免流节点
     type: select
     proxies: ['♻️ 自动选择', '🚀 节点选择']
     use: ['所有节点']
 
-  # 5. 广告屏蔽：命中广告规则集的请求直接拒绝，默认 REJECT，可切 DIRECT 放行
+  # 4. 广告屏蔽：命中广告规则集的请求直接拒绝，默认 REJECT，可切 DIRECT 放行
   - name: 🛑 全球拦截
     type: select
     proxies: [REJECT, DIRECT]
 
-# 规则：广告屏蔽 + 校园网/内网直连 + IPv6 走 IPv6代理组 + 其余 IPv4 走免流节点
+# 规则：广告屏蔽 + 校园网/内网 IPv4、域名白名单直连 + 其余所有公网地址走免流节点。
+# 不能在此处增加 IP-CIDR6,::/0；否则双栈网站被 DNS 解析为 IPv6 时会绕过免流节点。
 rules:
   - RULE-SET,reject,🛑 全球拦截
-${CAMPUS_RULES}  - IP-CIDR,172.16.0.0/12,DIRECT
+${CAMPUS_DOMAIN_RULES}${CAMPUS_RULES}  - IP-CIDR,172.16.0.0/12,DIRECT
   - IP-CIDR,100.64.0.0/10,DIRECT
   - IP-CIDR,192.168.0.0/16,DIRECT
   - IP-CIDR,10.0.0.0/8,DIRECT
   - IP-CIDR,127.0.0.0/8,DIRECT
   - IP-CIDR,169.254.0.0/16,DIRECT
   - IP-CIDR,224.0.0.0/4,DIRECT
-  # 所有 IPv6 目标 → IPv6代理组（默认直连，需要代理时在组里切换）
-  - IP-CIDR6,::/0,🌐 IPv6代理组
-  # 其余公网 IPv4 → 免流节点
+  # 其余所有公网地址（包括 IPv4 与 IPv6）→ 免流节点
   - MATCH,🆓 免流节点
 EOF
   fi
@@ -8898,6 +8920,9 @@ for z in ${!ALL_PARAMETER[@]}; do
       ;;
     --CAMPUS_DIRECT_CIDR )
       ((z++)); CAMPUS_DIRECT_CIDR=${ALL_PARAMETER[z]}
+      ;;
+    --CAMPUS_DIRECT_DOMAINS )
+      ((z++)); CAMPUS_DIRECT_DOMAINS=${ALL_PARAMETER[z]}; CAMPUS_DIRECT_DOMAINS_EXPLICIT=true
       ;;
     --VMESS_HOST_DOMAIN )
       ((z++)); VMESS_HOST_DOMAIN=${ALL_PARAMETER[z]}
