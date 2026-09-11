@@ -141,9 +141,9 @@ rules:
         self.assertIn('$(text 197) ${REINSTALL_BACKUP_DIR}', shell)
 
         admin_page = SCRIPT.with_name("admin-page.html").read_text(encoding="utf-8")
-        self.assertIn("<th>总流量</th>", admin_page)
+        self.assertIn("个人总流量</th>", admin_page)
         self.assertIn("formatBytes(user.used_bytes)", admin_page)
-        self.assertIn("<th>总流量</th>", shell)
+        self.assertIn("个人总流量</th>", shell)
         self.assertIn("formatBytes(user.used_bytes)", shell)
 
         export_start = shell.index("\nexport_list() {")
