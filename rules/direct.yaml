@@ -1,4 +1,27 @@
 payload:
+  # 域名和软件直连
   - DOMAIN-SUFFIX,neu.edu.cn
   - DOMAIN,pan.baidu.com
   - PROCESS-NAME,QQ.exe
+  - PROCESS-NAME,Weixin.exe
+  - PROCESS-NAME,tailscaled.exe
+  - PROCESS-NAME,BaiduNetdisk.exe
+
+  # 校园网网段直连
+  - IP-CIDR,202.118.0.0/19
+  - IP-CIDR,202.199.0.0/20
+  - IP-CIDR,210.30.192.0/20
+  - IP-CIDR,219.216.64.0/18
+  - IP-CIDR,58.154.160.0/19
+  - IP-CIDR,58.154.192.0/18
+  - IP-CIDR,118.202.0.0/19
+  - IP-CIDR,118.202.32.0/20
+
+  # 内网及本地网段直连
+  - IP-CIDR,172.16.0.0/12
+  - IP-CIDR,100.64.0.0/10
+  - IP-CIDR,192.168.0.0/16
+  - IP-CIDR,10.0.0.0/8
+  - IP-CIDR,127.0.0.0/8
+  - IP-CIDR,169.254.0.0/16
+  - IP-CIDR,224.0.0.0/4
