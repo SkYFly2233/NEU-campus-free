@@ -1,0 +1,4 @@
+payload:
+  - DOMAIN-SUFFIX,neu.edu.cn
+  - DOMAIN,pan.baidu.com
+  - PROCESS-NAME,QQ.exe
