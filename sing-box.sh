@@ -7182,6 +7182,7 @@ mixed-port: 7890
 allow-lan: true
 bind-address: '*'
 mode: rule
+find-process-mode: always
 log-level: info
 ipv6: true
 external-controller: 127.0.0.1:10000
@@ -7244,6 +7245,16 @@ proxy-providers:
       interval: 300
 
 rule-providers:
+  # GitHub 直连白名单，支持 DOMAIN / DOMAIN-SUFFIX / PROCESS-NAME 等 classical 规则。
+  # 客户端首次加载时下载，此后每 300 秒更新；仅更新节点不保证同步规则集。
+  direct-whitelist:
+    type: http
+    behavior: classical
+    format: yaml
+    url: "https://raw.githubusercontent.com/SkYFly2233/NEU-campus-free/main/rules/direct.yaml"
+    path: ./ruleset/direct-whitelist.yaml
+    interval: 300
+
   # 广告屏蔽规则集：Loyalsoldier 维护的广告/追踪域名列表。
   # RULE-SET 只能引用 rule-providers，不能放在 proxy-providers 中。
   reject:
@@ -7281,9 +7292,10 @@ proxy-groups:
     type: select
     proxies: [REJECT, DIRECT]
 
-# 规则：广告屏蔽 + 校园网/内网 IPv4、域名白名单直连 + 其余所有公网地址走免流节点。
+# 规则：GitHub 白名单优先直连 + 广告屏蔽 + 校园网/内网 IPv4、固定域名白名单直连 + 其余公网走免流节点。
 # 不能在此处增加 IP-CIDR6,::/0；否则双栈网站被 DNS 解析为 IPv6 时会绕过免流节点。
 rules:
+  - RULE-SET,direct-whitelist,DIRECT
   - RULE-SET,reject,🛑 全球拦截
 ${CAMPUS_DOMAIN_RULES}${CAMPUS_RULES}  - IP-CIDR,172.16.0.0/12,DIRECT
   - IP-CIDR,100.64.0.0/10,DIRECT
