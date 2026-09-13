@@ -2,6 +2,7 @@ payload:
   # 域名和软件直连
   - DOMAIN-SUFFIX,neu.edu.cn
   - DOMAIN,pan.baidu.com
+  - DOMAIN,byr.pt
   - PROCESS-NAME,QQ.exe
   - PROCESS-NAME,Weixin.exe
   - PROCESS-NAME,tailscaled.exe
