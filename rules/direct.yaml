@@ -7,6 +7,8 @@ payload:
   - PROCESS-NAME,Weixin.exe
   - PROCESS-NAME,tailscaled.exe
   - PROCESS-NAME,BaiduNetdisk.exe
+  - PROCESS-NAME,baidunetdiskhost.exe
+  - PROCESS-NAME,BaiduNetdiskUnite.exe
   - PROCESS-NAME,GameViewer.exe
   - PROCESS-NAME,GameViewerServer.exe
   - PROCESS-NAME,Moonlight.exe
