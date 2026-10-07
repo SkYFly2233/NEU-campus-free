@@ -140,6 +140,21 @@ rules:
         self.assertIn("systemctl disable --now argo", shell)
         self.assertIn('"$ARGO_DAEMON_FILE"', shell)
         self.assertIn('$(text 197) ${REINSTALL_BACKUP_DIR}', shell)
+        self.assertIn("preserve_multi_user_state()", shell)
+        self.assertIn("restore_preserved_certificate", shell)
+        self.assertIn("restore_preserved_users", shell)
+        self.assertIn("--UPGRADE", shell)
+        prepare_match = re.search(r"(?ms)^prepare_clean_reinstall\(\) \{.*?^\}", shell)
+        self.assertIsNotNone(prepare_match)
+        prepare_body = prepare_match.group(0)
+        self.assertIn("$(text 205)", prepare_body)
+        self.assertLess(
+            prepare_body.index("preserve_multi_user_state"),
+            prepare_body.index("backup_and_remove_existing_singbox"),
+        )
+        upgrade_call = shell.index("if [ \"$UPGRADE_PRESERVE\" = true ]; then")
+        wipe_call = shell.index("if [ \"$IS_FAST_INSTALL\" = 'is_fast_install' ]; then\n  prepare_clean_reinstall", upgrade_call)
+        self.assertLess(upgrade_call, wipe_call)
 
         admin_page = SCRIPT.with_name("admin-page.html").read_text(encoding="utf-8")
         self.assertIn("个人已用</th><th>总流量</th>", admin_page)
@@ -198,7 +213,14 @@ rules:
         )
         self.assertIn("CAMPUS_DIRECT_DOMAINS=''", shell)
         self.assertIn("DOMAIN-SUFFIX,${_domain},DIRECT", shell)
+        self.assertIn("DOMAIN-SUFFIX,neu.edu.cn,DIRECT", shell)
+        self.assertIn("${_cidr_type},${_cidr},DIRECT,no-resolve", shell)
+        self.assertIn("IP-CIDR6", shell)
+        self.assertIn("PROCESS-NAME,GameViewer.exe,DIRECT", shell)
+        self.assertIn("PROCESS-NAME,ToDesk.exe,DIRECT", shell)
+        self.assertIn("- IP-CIDR,10.0.0.0/8,DIRECT,no-resolve", shell)
         self.assertNotIn("IP-CIDR6,::/0,🌐 IPv6代理组", shell)
+        self.assertNotIn("- IP-CIDR,10.0.0.0/8,DIRECT\n", shell)
         self.assertIn("其余所有公网地址（包括 IPv4 与 IPv6）→ 免流节点", shell)
 
     def test_adds_distinct_users_and_renders_admin_summary(self):

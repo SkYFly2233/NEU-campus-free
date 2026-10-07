@@ -445,6 +445,18 @@ E[198]="Initializing the Hysteria2/TUIC multi-user manager..."
 C[198]="正在初始化 Hysteria2/TUIC 多用户管理器……"
 E[199]="The Hysteria2/TUIC multi-user manager is ready."
 C[199]="Hysteria2/TUIC 多用户管理器已经就绪。"
+E[200]="Upgrade and keep users, used traffic, and subscription URLs (sb --UPGRADE)"
+C[200]="升级并保留用户、已用流量和订阅地址 (sb --UPGRADE)"
+E[201]="No user database was found. Upgrade was cancelled and the current installation was not changed."
+C[201]="没有找到用户数据库，已取消升级，当前安装未被改动。"
+E[202]="User data was copied aside. Sing-box will be reinstalled, then users, used traffic, certificates, and subscription URLs will be restored."
+C[202]="用户数据已先复制出来。接下来会重装 Sing-box，然后恢复用户、已用流量、证书和订阅地址。"
+E[203]="Users, used traffic, and subscription URLs have been restored."
+C[203]="用户、已用流量和订阅地址已经恢复。"
+E[204]="Preserve copy:"
+C[204]="保留副本："
+E[205]="Choose how to handle the existing installation:\n  1. Uninstall and reinstall. Users, used traffic, and subscription URLs will be lost.\n  2. Reinstall and keep users, used traffic, and subscription URLs.\n  0. Cancel. The current installation will not be changed.\nEnter a number [0-2] (default 0): "
+C[205]="请选择如何处理已有安装：\n  1. 卸载并重新安装（用户、已用流量和订阅地址会失效）\n  2. 保留用户、已用流量和订阅地址后重新安装\n  0. 取消，不改动现有安装\n请输入编号 [0-2]（默认为 0）："
 
 # 自定义字体彩色，read 函数
 warning() { echo -e "\033[31m\033[01m$*\033[0m"; }  # 红色
@@ -763,13 +775,18 @@ install_multi_user_manager() {
 
   mkdir -p "${WORK_DIR}/users"
   chmod 700 "${WORK_DIR}/users"
+  # 升级时先放回用户库和原来的订阅基地址，避免 init 按新地址重写订阅链接。
+  restore_preserved_users
   # 严格模式不能从公共订阅路径反推服务器地址；仅以 root 可读的状态文件保存基地址。
-  if ! is_valid_subscription_base_url "${SUBSCRIBE_ADDRESS%/}"; then
+  if [ -s "${WORK_DIR}/users/subscription-base-url" ] && is_valid_subscription_base_url "$(awk 'NR==1{print; exit}' "${WORK_DIR}/users/subscription-base-url")"; then
+    :
+  elif ! is_valid_subscription_base_url "${SUBSCRIBE_ADDRESS%/}"; then
     warning " Cannot determine a valid subscription server address; preserving existing multi-user state."
     return 1
+  else
+    printf '%s\n' "${SUBSCRIBE_ADDRESS%/}" > "${WORK_DIR}/users/subscription-base-url"
+    chmod 600 "${WORK_DIR}/users/subscription-base-url"
   fi
-  printf '%s\n' "${SUBSCRIBE_ADDRESS%/}" > "${WORK_DIR}/users/subscription-base-url"
-  chmod 600 "${WORK_DIR}/users/subscription-base-url"
   # 脚本可能由 Windows 上传而带有 CRLF。使用 Python 的宽容 Base64 解码器，
   # 忽略行尾 \r，避免不同发行版的 base64 命令只解出第一行而截断管理器。
   python3 -c 'import base64, pathlib, sys; pathlib.Path(sys.argv[1]).write_bytes(base64.b64decode(sys.stdin.buffer.read()))' "${WORK_DIR}/sb-user.py" << 'SB_USER_MANAGER_B64'
@@ -3992,6 +4009,101 @@ backup_and_remove_existing_singbox() {
   info "\n $(text 194)\n $(text 197) ${REINSTALL_BACKUP_DIR} \n"
 }
 
+# 升级前把用户库、订阅基地址、校园网域名和证书复制到 /root。
+# 重装会删除 /etc/sing-box；这些文件在新管理器初始化前放回，订阅令牌和已用流量才不会变。
+preserve_multi_user_state() {
+  [ -s "${WORK_DIR}/users.db" ] || error "\n $(text 201) \n"
+  UPGRADE_PRESERVE_DIR="/root/sing-box-user-preserve-$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$UPGRADE_PRESERVE_DIR/users" "$UPGRADE_PRESERVE_DIR/cert"
+  chmod 700 "$UPGRADE_PRESERVE_DIR" "$UPGRADE_PRESERVE_DIR/users" "$UPGRADE_PRESERVE_DIR/cert"
+
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl stop sb-user-collect.timer >/dev/null 2>&1 || true
+    systemctl stop sb-user-web.service >/dev/null 2>&1 || true
+  fi
+  [ -x /usr/bin/sb-user ] && /usr/bin/sb-user collect >/dev/null 2>&1 || true
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$WORK_DIR/users.db" << 'PY' >/dev/null 2>&1 || true
+import sqlite3, sys
+conn = sqlite3.connect(sys.argv[1])
+conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+conn.close()
+PY
+  fi
+
+  cp -a "${WORK_DIR}/users.db" "$UPGRADE_PRESERVE_DIR/users.db"
+  [ -s "${WORK_DIR}/users.db-wal" ] && cp -a "${WORK_DIR}/users.db-wal" "$UPGRADE_PRESERVE_DIR/users.db-wal"
+  [ -s "${WORK_DIR}/users.db-shm" ] && cp -a "${WORK_DIR}/users.db-shm" "$UPGRADE_PRESERVE_DIR/users.db-shm"
+  [ -s "${WORK_DIR}/users/subscription-base-url" ] && cp -a "${WORK_DIR}/users/subscription-base-url" "$UPGRADE_PRESERVE_DIR/users/subscription-base-url"
+  [ -s "${WORK_DIR}/users/campus-direct-domains" ] && cp -a "${WORK_DIR}/users/campus-direct-domains" "$UPGRADE_PRESERVE_DIR/users/campus-direct-domains"
+  [ -s "${WORK_DIR}/cert/cert.pem" ] && cp -a "${WORK_DIR}/cert/cert.pem" "$UPGRADE_PRESERVE_DIR/cert/cert.pem"
+  [ -s "${WORK_DIR}/cert/private.key" ] && cp -a "${WORK_DIR}/cert/private.key" "$UPGRADE_PRESERVE_DIR/cert/private.key"
+  [ -s "${WORK_DIR}/cert/cert_200.pem" ] && cp -a "${WORK_DIR}/cert/cert_200.pem" "$UPGRADE_PRESERVE_DIR/cert/cert_200.pem"
+  if [ -s "${WORK_DIR}/subscribe/proxies" ]; then
+    grep -oE 'server:[[:space:]]*[^,]+' "${WORK_DIR}/subscribe/proxies" | sed -E 's/server:[[:space:]]*//; s/["'\'']//g' | awk '!seen[$0]++' > "$UPGRADE_PRESERVE_DIR/server-ips"
+  fi
+  chmod 600 "$UPGRADE_PRESERVE_DIR/users.db" "$UPGRADE_PRESERVE_DIR/cert/private.key" 2>/dev/null || true
+  info "\n $(text 202)\n $(text 204) ${UPGRADE_PRESERVE_DIR} \n"
+}
+
+# 用保留下来的订阅地址和节点 IP 继续安装，避免 Nginx 端口和订阅主机被重新随机分配。
+apply_preserved_install_params() {
+  [ -n "$UPGRADE_PRESERVE_DIR" ] || return 0
+  local SAVED_URL="" SAVED_HOST="" SAVED_PORT="" LINE ORDERED=""
+  if [ -s "$UPGRADE_PRESERVE_DIR/users/subscription-base-url" ]; then
+    IFS= read -r SAVED_URL < "$UPGRADE_PRESERVE_DIR/users/subscription-base-url"
+    SAVED_URL=${SAVED_URL%/}
+  fi
+  if [[ "$SAVED_URL" =~ ^https?://\[([^]]+)\]:([0-9]+)$ ]]; then
+    SAVED_HOST="${BASH_REMATCH[1]}"
+    SAVED_PORT="${BASH_REMATCH[2]}"
+  elif [[ "$SAVED_URL" =~ ^https?://([^:/]+):([0-9]+)$ ]]; then
+    SAVED_HOST="${BASH_REMATCH[1]}"
+    SAVED_PORT="${BASH_REMATCH[2]}"
+  fi
+  [ -n "$SAVED_PORT" ] && PORT_NGINX="$SAVED_PORT"
+  if [ -n "$SAVED_HOST" ]; then
+    ORDERED="$SAVED_HOST"
+  fi
+  if [ -s "$UPGRADE_PRESERVE_DIR/server-ips" ]; then
+    while IFS= read -r LINE; do
+      [ -z "$LINE" ] && continue
+      [ "$LINE" = "$SAVED_HOST" ] && continue
+      ORDERED="${ORDERED:+$ORDERED,}$LINE"
+    done < "$UPGRADE_PRESERVE_DIR/server-ips"
+  fi
+  [ -n "$ORDERED" ] && SERVER_IP="$ORDERED"
+  if [ -s "$UPGRADE_PRESERVE_DIR/users/campus-direct-domains" ]; then
+    IFS= read -r CAMPUS_DIRECT_DOMAINS < "$UPGRADE_PRESERVE_DIR/users/campus-direct-domains"
+    CAMPUS_DIRECT_DOMAINS_EXPLICIT=true
+  fi
+}
+
+restore_preserved_certificate() {
+  [ -n "$UPGRADE_PRESERVE_DIR" ] || return 0
+  [ -s "$UPGRADE_PRESERVE_DIR/cert/cert.pem" ] || return 0
+  [ -s "$UPGRADE_PRESERVE_DIR/cert/private.key" ] || return 0
+  mkdir -p "${WORK_DIR}/cert"
+  cp -a "$UPGRADE_PRESERVE_DIR/cert/cert.pem" "${WORK_DIR}/cert/cert.pem"
+  cp -a "$UPGRADE_PRESERVE_DIR/cert/private.key" "${WORK_DIR}/cert/private.key"
+  [ -s "$UPGRADE_PRESERVE_DIR/cert/cert_200.pem" ] && cp -a "$UPGRADE_PRESERVE_DIR/cert/cert_200.pem" "${WORK_DIR}/cert/cert_200.pem"
+  chmod 600 "${WORK_DIR}/cert/private.key" "${WORK_DIR}/cert/cert.pem" 2>/dev/null || true
+}
+
+restore_preserved_users() {
+  [ -n "$UPGRADE_PRESERVE_DIR" ] || return 0
+  [ -s "$UPGRADE_PRESERVE_DIR/users.db" ] || return 0
+  cp -a "$UPGRADE_PRESERVE_DIR/users.db" "${WORK_DIR}/users.db"
+  rm -f "${WORK_DIR}/users.db-wal" "${WORK_DIR}/users.db-shm"
+  [ -s "$UPGRADE_PRESERVE_DIR/users.db-wal" ] && cp -a "$UPGRADE_PRESERVE_DIR/users.db-wal" "${WORK_DIR}/users.db-wal"
+  [ -s "$UPGRADE_PRESERVE_DIR/users.db-shm" ] && cp -a "$UPGRADE_PRESERVE_DIR/users.db-shm" "${WORK_DIR}/users.db-shm"
+  mkdir -p "${WORK_DIR}/users"
+  chmod 700 "${WORK_DIR}/users"
+  [ -s "$UPGRADE_PRESERVE_DIR/users/subscription-base-url" ] && cp -a "$UPGRADE_PRESERVE_DIR/users/subscription-base-url" "${WORK_DIR}/users/subscription-base-url"
+  [ -s "$UPGRADE_PRESERVE_DIR/users/campus-direct-domains" ] && cp -a "$UPGRADE_PRESERVE_DIR/users/campus-direct-domains" "${WORK_DIR}/users/campus-direct-domains"
+  chmod 600 "${WORK_DIR}/users.db" "${WORK_DIR}/users/subscription-base-url" "${WORK_DIR}/users/campus-direct-domains" 2>/dev/null || true
+}
+
 # 快装模式与第三方旧安装都必须经过此入口，避免旧二进制未下载、服务冲突或覆盖旧配置。
 prepare_clean_reinstall() {
   [ "$REINSTALL_PREPARED" = true ] && return 0
@@ -4006,10 +4118,19 @@ prepare_clean_reinstall() {
     error "\n $(text 195) \n"
   fi
   if [[ "${FORCE_REINSTALL,,}" != 'true' ]]; then
-    reading "\n $(text 192) " REINSTALL_CONFIRM
-    if [[ ! "${REINSTALL_CONFIRM,,}" =~ ^(y|yes)$ ]]; then
-      error "\n $(text 193) \n"
-    fi
+    reading "\n $(text 205) " REINSTALL_CHOICE
+    case "${REINSTALL_CHOICE:-0}" in
+      1 )
+        ;;
+      2 )
+        # 必须在删除 /etc/sing-box 之前复制用户库，并记下订阅端口和地址。
+        preserve_multi_user_state
+        apply_preserved_install_params
+        ;;
+      * )
+        error "\n $(text 193) \n"
+        ;;
+    esac
   fi
   backup_and_remove_existing_singbox
 }
@@ -6829,6 +6950,8 @@ install_sing-box() {
   [ ! -d ${WORK_DIR}/logs ] && mkdir -p ${WORK_DIR}/logs
   [ ! -d ${TEMP_DIR} ] && mkdir -p $TEMP_DIR
   ssl_certificate $TLS_SERVER_DEFAULT
+  # 升级时用原来的证书覆盖刚生成的证书，客户端里的证书指纹才不会变。
+  restore_preserved_certificate
   hint "\n $(text 2) " && wait
   [ -x "$TEMP_DIR/sing-box" ] || error "\n $(text 42) \n"
   sing-box_json
@@ -7158,9 +7281,12 @@ export_list() {
   # 生成校园网免流 Clash 订阅。
   # 公网地址不再按 DNS 返回的 A/AAAA 记录分流：除直连网段和域名白名单外，一律走免流节点。
   if [ "$IS_SUB" = 'is_sub' ]; then
-    local CAMPUS_RULES="" CAMPUS_DOMAIN_RULES="" _cidr _domain
+    local CAMPUS_RULES="" CAMPUS_DOMAIN_RULES="" _cidr _domain _cidr_type
     for _cidr in ${CAMPUS_DIRECT_CIDR//,/ }; do
-      CAMPUS_RULES+="  - IP-CIDR,${_cidr},DIRECT"$'\n'
+      # no-resolve：目标是域名时跳过，避免为判断是否校园网地址而查询 DNS。
+      # 只有连接目标本身已是该网段内的 IP 时才直连。
+      if [[ "$_cidr" == *:* ]]; then _cidr_type="IP-CIDR6"; else _cidr_type="IP-CIDR"; fi
+      CAMPUS_RULES+="  - ${_cidr_type},${_cidr},DIRECT,no-resolve"$'\n'
     done
     # 仅接受域名，避免把用户传入的内容直接写进 YAML 规则。DOMAIN-SUFFIX 会匹配该域名及其全部子域名。
     for _domain in ${CAMPUS_DIRECT_DOMAINS//,/ }; do
@@ -7292,18 +7418,24 @@ proxy-groups:
     type: select
     proxies: [REJECT, DIRECT]
 
-# 规则：GitHub 白名单优先直连 + 广告屏蔽 + 校园网/内网 IPv4、固定域名白名单直连 + 其余公网走免流节点。
-# 不能在此处增加 IP-CIDR6,::/0；否则双栈网站被 DNS 解析为 IPv6 时会绕过免流节点。
+# 规则顺序：域名/进程白名单 → 广告拦截 → 校园网域名 → 校园网与内网 IP（no-resolve）→ 其余免流。
+# no-resolve 使域名请求跳过 IP 规则，不再为国外网站做本机 DNS。禁止 IP-CIDR6,::/0，否则全部 IPv6 会直连。
 rules:
   - RULE-SET,direct-whitelist,DIRECT
+  - PROCESS-NAME,GameViewer.exe,DIRECT
+  - PROCESS-NAME,GameViewerServer.exe,DIRECT
+  - PROCESS-NAME,Moonlight.exe,DIRECT
+  - PROCESS-NAME,Sunshine.exe,DIRECT
+  - PROCESS-NAME,ToDesk.exe,DIRECT
+  - DOMAIN-SUFFIX,neu.edu.cn,DIRECT
   - RULE-SET,reject,🛑 全球拦截
-${CAMPUS_DOMAIN_RULES}${CAMPUS_RULES}  - IP-CIDR,172.16.0.0/12,DIRECT
-  - IP-CIDR,100.64.0.0/10,DIRECT
-  - IP-CIDR,192.168.0.0/16,DIRECT
-  - IP-CIDR,10.0.0.0/8,DIRECT
-  - IP-CIDR,127.0.0.0/8,DIRECT
-  - IP-CIDR,169.254.0.0/16,DIRECT
-  - IP-CIDR,224.0.0.0/4,DIRECT
+${CAMPUS_DOMAIN_RULES}${CAMPUS_RULES}  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,169.254.0.0/16,DIRECT,no-resolve
+  - IP-CIDR,224.0.0.0/4,DIRECT,no-resolve
   # 其余所有公网地址（包括 IPv4 与 IPv6）→ 免流节点
   - MATCH,🆓 免流节点
 EOF
@@ -8621,6 +8753,10 @@ quick_install_hy2_tuic() {
   install_sing-box
   export_list install
   create_shortcut
+  if [ -n "$UPGRADE_PRESERVE_DIR" ]; then
+    info "\n $(text 203)\n $(text 204) ${UPGRADE_PRESERVE_DIR} \n"
+    [ -x /usr/bin/sb-user ] && /usr/bin/sb-user list || true
+  fi
 }
 
 
@@ -8638,6 +8774,7 @@ menu_setting() {
     OPTION[10]="10.  $(text 59)"
     OPTION[11]="11.  $(text 69)"
     OPTION[12]="12.  $(text 76)"
+    OPTION[13]="13.  $(text 200)"
 
     ACTION[1]() { export_list; exit 0; }
 
@@ -8673,6 +8810,7 @@ menu_setting() {
     ACTION[10]() { bash <(wget --no-check-certificate -qO- ${GH_PROXY}https://raw.githubusercontent.com/fscarmen/argox/main/argox.sh) -$L; exit; }
     ACTION[11]() { bash <(wget --no-check-certificate -qO- ${GH_PROXY}https://raw.githubusercontent.com/fscarmen/sba/main/sba.sh) -$L; exit; }
     ACTION[12]() { bash <(wget --no-check-certificate -qO- https://tcp.hy2.sh/); exit; }
+    ACTION[13]() { bash <(wget --no-check-certificate -qO- ${SCRIPT_UPDATE_URL}) --UPGRADE -$L; exit; }
   else
     OPTION[1]="1.  $(text 115)"
     OPTION[2]="2.  $(text 34) + Argo + $(text 80) $(text 89)"
@@ -8985,6 +9123,9 @@ for z in ${!ALL_PARAMETER[@]}; do
     --REINSTALL )
       ((z++)); [[ "${ALL_PARAMETER[z],,}" =~ ^(true|1|y|yes)$ ]] && FORCE_REINSTALL=true
       ;;
+    --UPGRADE )
+      UPGRADE_PRESERVE=true
+      ;;
     --BIND_INTERFACE )
       ((z++)); BIND_INTERFACE=${ALL_PARAMETER[z]}
       [[ "${BIND_INTERFACE,,}" = "default" ]] && unset BIND_INTERFACE
@@ -8998,6 +9139,15 @@ done
 check_arch
 check_dependencies
 check_system_ip
+
+# 升级会重装当前脚本里的 Sing-box，但先把用户库、流量、证书和订阅地址复制出来。
+# 必须在 prepare_clean_reinstall 删除 /etc/sing-box 之前完成。
+if [ "$UPGRADE_PRESERVE" = true ]; then
+  preserve_multi_user_state
+  apply_preserved_install_params
+  FORCE_REINSTALL=true
+  IS_FAST_INSTALL=is_fast_install
+fi
 
 # -l 是“全新双协议安装”，不能复用任何旧二进制或配置；否则后台下载会被跳过，
 # 随后可能出现等待下载、端口冲突或旧节点超时。先让用户确认备份和卸载。
