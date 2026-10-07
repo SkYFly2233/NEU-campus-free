@@ -211,6 +211,14 @@ rules:
             "proxies: ['♻️ 自动选择', '🚀 节点选择']",
             shell,
         )
+        self.assertIn('additional-suffix: " |v4v6"', shell)
+        self.assertIn('additional-suffix: " |v6"', shell)
+        self.assertIn("enhanced-mode: fake-ip", shell)
+        self.assertIn("fake-ip-range: 198.18.0.1/16", shell)
+        self.assertIn("- 119.29.29.29", shell)
+        self.assertNotIn("enhanced-mode: redir-host", shell)
+        self.assertNotIn("dns.google", shell)
+        self.assertNotIn("1.12.12.12", shell)
         self.assertIn("CAMPUS_DIRECT_DOMAINS=''", shell)
         self.assertIn("DOMAIN-SUFFIX,${_domain},DIRECT", shell)
         self.assertIn("DOMAIN-SUFFIX,neu.edu.cn,DIRECT", shell)

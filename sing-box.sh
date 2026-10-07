@@ -7330,30 +7330,30 @@ sniffer:
       ports: [443, 8443]
       override-destination: true
 
-# 校园网免流：保留域名以命中白名单；公网 IPv4/IPv6 不再依赖 DNS 结果分流。
+# 校园网免流：fake-ip 先按域名分流。免流和广告不在本机解析国外域名；
+# 只有直连时才向国内 DNS 查询真实地址。校园网会丢弃国外域名的明文 DNS。
 dns:
   enable: true
   ipv6: true
-  enhanced-mode: redir-host
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
   use-hosts: true
   default-nameserver:
     - 223.5.5.5
-    - 1.12.12.12
+    - 119.29.29.29
   nameserver:
     - 223.5.5.5
-    - 1.12.12.12
-  fallback:
-    - https://dns.google/dns-query
-    - https://1.1.1.1/dns-query
-  fallback-filter:
-    geoip: true
-    geoip-code: CN
+    - 119.29.29.29
 
 proxy-providers:
   所有节点:
     type: http
     url: ${PROXY_PROVIDERS_URL}
     interval: 3600
+    # 同一条节点会同时出现在「所有节点」和「仅IPv6节点」里。
+    # 新版 Clash 不允许不同分组使用相同节点名，否则会标成 ambiguous 且无法点选。
+    override:
+      additional-suffix: " |v4v6"
     health-check:
       enable: true
       url: https://www.gstatic.com/generate_204
@@ -7363,8 +7363,10 @@ proxy-providers:
     type: http
     url: ${PROXY_PROVIDERS_URL}
     interval: 3600
-    # 节点名后缀是 [IP]，IPv6 地址含冒号，IPv4 不含 → 只留 IPv6
+    # 节点名后缀是 [IP]，IPv6 地址含冒号，IPv4 不含 → 只留 IPv6。过滤发生在加后缀之前。
     filter: ".*:.*"
+    override:
+      additional-suffix: " |v6"
     health-check:
       enable: true
       url: https://www.gstatic.com/generate_204
