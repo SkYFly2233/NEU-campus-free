@@ -24,6 +24,7 @@ import socket
 import sqlite3
 import subprocess
 import sys
+import time
 import urllib.parse
 import uuid
 from pathlib import Path
@@ -63,6 +64,8 @@ MANAGED_CONF_GLOBS = (
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 TOKEN_RE = re.compile(r"^[a-f0-9]{64}$")
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+# user id -> combined upload+download bytes at the previous admin poll
+_speed_sample: tuple[float, dict[int, int]] | None = None
 
 
 class ManagerError(RuntimeError):
@@ -1045,8 +1048,35 @@ def cmd_cleanup(conn: sqlite3.Connection, _args: argparse.Namespace) -> None:
     remove_counter_rules()
 
 
+def measure_speeds(
+    rows: list[sqlite3.Row], now: float | None = None
+) -> tuple[int | None, dict[int, int | None]]:
+    """Bytes per second of upload plus download since the previous sample."""
+    global _speed_sample
+    moment = time.monotonic() if now is None else now
+    current = {
+        int(row["id"]): int(row["upload_bytes"]) + int(row["download_bytes"]) for row in rows
+    }
+    per_user: dict[int, int | None] = {user_id: None for user_id in current}
+    total: int | None = None
+    if _speed_sample is not None:
+        previous_at, previous = _speed_sample
+        elapsed = moment - previous_at
+        common = [user_id for user_id in current if user_id in previous]
+        if elapsed >= 0.2 and common:
+            deltas = [max(0, current[user_id] - previous[user_id]) for user_id in common]
+            total = int(sum(deltas) / elapsed)
+            for user_id, delta in zip(common, deltas):
+                per_user[user_id] = int(delta / elapsed)
+    _speed_sample = (moment, current)
+    return total, per_user
+
+
 def web_user_payload(
-    row: sqlite3.Row, everyone: list[sqlite3.Row], monthly_quota: int
+    row: sqlite3.Row,
+    everyone: list[sqlite3.Row],
+    monthly_quota: int,
+    speed_bps: int | None = None,
 ) -> dict[str, object]:
     used = row["upload_bytes"] + row["download_bytes"]
     quota = row["quota_bytes"]
@@ -1067,13 +1097,17 @@ def web_user_payload(
         "display_total_bytes": display["total_bytes"],
         "display_remaining_bytes": display["remaining_bytes"],
         "uses_server_quota": display["uses_server_quota"],
+        "speed_bps": speed_bps,
         "subscription": user_link(row),
     }
 
 
 def web_users_payload(conn: sqlite3.Connection, admin: sqlite3.Row) -> dict[str, object]:
-    collect_usage(conn)
+    # The page polls once a second. Keep counters current without rewriting
+    # every subscription file; the collect timer still renders those.
+    collect_usage(conn, render=False)
     rows = all_users(conn)
+    total_speed, speeds = measure_speeds(rows)
     monthly_quota = server_monthly_quota(conn)
     total_up = sum(row["upload_bytes"] for row in rows)
     total_down = sum(row["download_bytes"] for row in rows)
@@ -1090,8 +1124,12 @@ def web_users_payload(conn: sqlite3.Connection, admin: sqlite3.Row) -> dict[str,
             "upload_bytes": total_up,
             "download_bytes": total_down,
             "used_bytes": total_used,
+            "speed_bps": total_speed,
         },
-        "users": [web_user_payload(row, rows, monthly_quota) for row in rows],
+        "users": [
+            web_user_payload(row, rows, monthly_quota, speeds.get(int(row["id"])))
+            for row in rows
+        ],
     }
 
 

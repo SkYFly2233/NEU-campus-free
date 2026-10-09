@@ -33,6 +33,7 @@ class MultiUserManagerTests(unittest.TestCase):
         sb_user.SING_BOX = root / "sing-box"
         sb_user.ADMIN_PAGE_PATH = root / "admin-page.html"
         sb_user.DRY_RUN = True
+        sb_user._speed_sample = None
         sb_user.CONF_DIR.mkdir()
         sb_user.SUBSCRIBE_DIR.mkdir()
         base = {
@@ -158,7 +159,10 @@ rules:
 
         admin_page = SCRIPT.with_name("admin-page.html").read_text(encoding="utf-8")
         self.assertIn("个人已用</th><th>总流量</th>", admin_page)
+        self.assertIn("实时速度</th>", admin_page)
+        self.assertIn('id="live-speed"', admin_page)
         self.assertIn("formatBytes(user.used_bytes)", admin_page)
+        self.assertIn(", 1000);", admin_page)
         embedded_page = re.search(
             r"<< 'SB_USER_ADMIN_PAGE_B64'\n(.*?)\nSB_USER_ADMIN_PAGE_B64", shell, re.S
         )
@@ -422,6 +426,23 @@ rules:
             sb_user.current_traffic_month = original_month
             conn.close()
 
+    def test_merged_speed_adds_upload_and_download(self):
+        rows = [{"id": 1, "upload_bytes": 100, "download_bytes": 400}]
+        total, per_user = sb_user.measure_speeds(rows, now=10)
+        self.assertIsNone(total)
+        self.assertIsNone(per_user[1])
+        rows[0]["upload_bytes"] = 300
+        rows[0]["download_bytes"] = 2200
+        total, per_user = sb_user.measure_speeds(rows, now=12)
+        self.assertEqual(per_user[1], 1000)
+        self.assertEqual(total, 1000)
+        rows.append({"id": 2, "upload_bytes": 0, "download_bytes": 0})
+        rows[0]["download_bytes"] = 4200
+        total, per_user = sb_user.measure_speeds(rows, now=14)
+        self.assertEqual(per_user[1], 1000)
+        self.assertIsNone(per_user[2])
+        self.assertEqual(total, 1000)
+
     def test_admin_web_page_authentication_and_user_management(self):
         with contextlib.closing(sb_user.connect()) as conn:
             sb_user.cmd_init(conn, argparse.Namespace())
@@ -466,6 +487,8 @@ rules:
                 data = json.load(response)
             self.assertEqual(data["admin"], "admin")
             self.assertEqual(data["totals"]["user_count"], 2)
+            self.assertIsNone(data["totals"]["speed_bps"])
+            self.assertIsNone(data["users"][0]["speed_bps"])
             self.assertEqual({item["username"] for item in data["users"]}, {"admin", "alice"})
             self.assertIn("subscription", data["users"][0])
             self.assertEqual(data["server_monthly_quota_bytes"], 4 * sb_user.TIB)

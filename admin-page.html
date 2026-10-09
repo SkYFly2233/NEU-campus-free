@@ -36,6 +36,8 @@
     .auth { gap: 8px; color: var(--good); font-size: 13px; white-space: nowrap; }
     .auth::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
     .top-actions { gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+    .speed-banner { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 14px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
+    .speed-value { font-size: 34px; font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
     .metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; margin-bottom: 22px; }
     .metric,.panel { background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
     .metric { padding: 17px; border-radius: 14px; }
@@ -53,7 +55,7 @@
     .button.danger { color: var(--danger); }
     .button.small { min-height: 32px; padding: 5px 9px; font-size: 12px; }
     .table-wrap { overflow-x: auto; }
-    table { width: 100%; min-width: 1020px; border-collapse: collapse; }
+    table { width: 100%; min-width: 1140px; border-collapse: collapse; }
     th { padding: 12px 13px; background: var(--surface-2); color: var(--muted); text-align: left; font-size: 12px; font-weight: 600; }
     td { padding: 15px 13px; border-top: 1px solid var(--line); font-size: 13px; vertical-align: middle; }
     tbody tr:first-child td { border-top: 0; }
@@ -95,6 +97,7 @@
       .topbar,.panel-head { align-items: stretch; flex-direction: column; }
       .top-actions { justify-content: flex-start; }
       .auth { align-self: flex-start; }
+      .speed-banner { align-items: flex-start; flex-direction: column; }
       .metrics { grid-template-columns: 1fr; gap: 10px; }
       .panel-head .button { width: 100%; }
     }
@@ -108,6 +111,10 @@
     </header>
 
     <div class="error-panel" id="error-panel" role="alert"></div>
+    <section class="speed-banner" aria-label="实时网速">
+      <div><div class="metric-label">实时网速</div><div class="speed-value" id="live-speed">—</div></div>
+      <p class="panel-note">全体用户上传与下载合计，每秒刷新</p>
+    </section>
     <section class="metrics" aria-label="整体流量摘要">
       <article class="metric"><div class="metric-label">用户数量</div><div class="metric-value" id="user-count">—</div></article>
       <article class="metric"><div class="metric-head"><div class="metric-label">服务器月流量上限</div><div class="secondary" id="traffic-month">—</div></div><div class="metric-value" id="server-quota">—</div></article>
@@ -121,8 +128,8 @@
       <div class="panel-head"><div><h2 id="users-title">用户与额度</h2><p class="panel-note">Hysteria2 与 TUIC 流量合并统计；额度 0 GB 表示不限量</p></div><button class="button primary" id="add-user" type="button">＋ 新建用户</button></div>
       <div class="table-wrap">
         <table aria-label="用户流量和限额">
-          <thead><tr><th>用户</th><th>状态</th><th>协议与端口</th><th>上传</th><th>下载</th><th title="该用户本月上传与下载之和">个人已用</th><th>总流量</th><th style="text-align:right">管理</th></tr></thead>
-          <tbody id="users"><tr><td colspan="8" class="loading">正在读取用户数据…</td></tr></tbody>
+          <thead><tr><th>用户</th><th>状态</th><th title="该用户上传与下载合计">实时速度</th><th>协议与端口</th><th>上传</th><th>下载</th><th title="该用户本月上传与下载之和">个人已用</th><th>总流量</th><th style="text-align:right">管理</th></tr></thead>
+          <tbody id="users"><tr><td colspan="9" class="loading">正在读取用户数据…</td></tr></tbody>
         </table>
       </div>
     </section>
@@ -160,7 +167,7 @@
       const deleteDialog = $('#delete-dialog');
       const serverQuotaDialog = $('#server-quota-dialog');
       const editForm = $('#edit-form');
-      const state = { users: [], editing: null, deleting: null, busy: false };
+      const state = { users: [], editing: null, deleting: null, busy: false, signature: '', loading: false };
       let toastTimer;
 
       const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -169,6 +176,12 @@
         if (bytes <= 0) return '0 B';
         const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
         return `${(bytes / 1024 ** index).toFixed(index < 3 ? 1 : 2)} ${units[index]}`;
+      };
+      const formatSpeed = value => {
+        if (value === null || value === undefined) return '—';
+        const bytes = Number(value);
+        if (bytes < 1024) return `${Math.round(bytes)} B/s`;
+        return `${formatBytes(bytes)}/s`;
       };
       function toast(message, error = false) {
         const element = $('#toast'); element.textContent = message; element.className = `toast show${error ? ' error' : ''}`;
@@ -183,10 +196,31 @@
         if (!response.ok) throw new Error(data.error || `请求失败（${response.status}）`);
         return data;
       }
+      function quotaParts(user) {
+        const displayTotal = user.display_total_bytes;
+        const displayUsed = user.display_used_bytes;
+        const percent = displayTotal ? Math.min(100, displayUsed / displayTotal * 100) : 0;
+        const level = percent >= 100 ? 'over' : percent >= 80 ? 'warning' : '';
+        return { displayTotal, displayUsed, percent, level };
+      }
+      function fillRow(row, user) {
+        const quota = quotaParts(user);
+        row.querySelector('[data-field="speed"]').textContent = formatSpeed(user.speed_bps);
+        row.querySelector('[data-field="upload"]').textContent = formatBytes(user.upload_bytes);
+        row.querySelector('[data-field="download"]').textContent = formatBytes(user.download_bytes);
+        row.querySelector('[data-field="used"]').textContent = formatBytes(user.used_bytes);
+        row.querySelector('[data-field="used-display"]').textContent = formatBytes(quota.displayUsed);
+        row.querySelector('[data-field="total-display"]').textContent = formatBytes(quota.displayTotal);
+        row.querySelector('[data-field="remaining"]').textContent = `${user.uses_server_quota ? '共享服务器月流量' : '个人限额'} · 可用 ${formatBytes(user.display_remaining_bytes)}`;
+        const bar = row.querySelector('[data-field="bar"]');
+        bar.style.width = `${quota.percent}%`;
+        bar.className = `bar ${quota.level}`;
+      }
       function render(data) {
         state.users = data.users || [];
         state.serverQuotaTb = data.server_monthly_quota_tb;
         $('#admin-name').textContent = `管理员 ${data.admin}`;
+        $('#live-speed').textContent = formatSpeed(data.totals.speed_bps);
         $('#user-count').textContent = data.totals.user_count;
         $('#server-quota').textContent = formatBytes(data.server_monthly_quota_bytes);
         $('#server-remaining').textContent = formatBytes(data.server_monthly_remaining_bytes);
@@ -196,26 +230,38 @@
         $('#total-used').textContent = formatBytes(data.totals.used_bytes);
         $('#updated').textContent = `更新于 ${new Date(data.refreshed_at).toLocaleTimeString()}`;
         $('#page-path').textContent = location.pathname.replace(/[a-f0-9]{64}/, token => `${token.slice(0,6)}…${token.slice(-6)}`);
-        if (!state.users.length) { usersBody.innerHTML = '<tr><td colspan="8" class="empty">暂无用户</td></tr>'; return; }
-        usersBody.innerHTML = state.users.map(user => {
-          const displayTotal = user.display_total_bytes;
-          const displayUsed = user.display_used_bytes;
-          const percent = displayTotal ? Math.min(100, displayUsed / displayTotal * 100) : 0;
-          const level = percent >= 100 ? 'over' : percent >= 80 ? 'warning' : '';
-          const ports = [`Hysteria2 ${user.hysteria2_port}`]; if (user.tuic_port) ports.push(`TUIC ${user.tuic_port}`);
-          return `<tr>
-            <td><div class="user-cell"><div class="avatar">${escapeHtml(user.username.slice(0,1).toUpperCase())}</div><div><div class="username">${escapeHtml(user.username)}</div><div class="role">${user.is_admin ? '管理员' : '普通用户'}</div></div></div></td>
-            <td><span class="status ${user.enabled ? '' : 'disabled'}">${user.enabled ? '● 启用' : '○ 停用'}</span></td>
-            <td><div class="protocols">${ports.map(port => `<span class="protocol">${escapeHtml(port)}</span>`).join('')}</div></td>
-            <td class="number">${formatBytes(user.upload_bytes)}</td><td class="number">${formatBytes(user.download_bytes)}</td><td class="number">${formatBytes(user.used_bytes)}</td>
-            <td><div class="quota"><div class="quota-text"><span>${formatBytes(displayUsed)}</span><span>${formatBytes(displayTotal)}</span></div><div class="track"><div class="bar ${level}" style="width:${percent}%"></div></div><div class="secondary">${user.uses_server_quota ? '共享服务器月流量' : '个人限额'} · 可用 ${formatBytes(user.display_remaining_bytes)}</div></div></td>
-            <td><div class="actions"><button class="button small" data-action="copy" data-user="${escapeHtml(user.username)}">订阅</button><button class="button small" data-action="quota" data-user="${escapeHtml(user.username)}">额度</button><button class="button small" data-action="toggle" data-user="${escapeHtml(user.username)}" ${user.is_admin ? 'disabled' : ''}>${user.enabled ? '停用' : '启用'}</button><button class="button small danger" data-action="delete" data-user="${escapeHtml(user.username)}" ${user.is_admin ? 'disabled' : ''}>删除</button></div></td>
-          </tr>`;
-        }).join('');
+        const signature = state.users.map(user => [user.username, user.enabled ? 1 : 0, user.is_admin ? 1 : 0, user.hysteria2_port, user.tuic_port || '', user.uses_server_quota ? 1 : 0].join(':')).join('|');
+        if (!state.users.length) {
+          state.signature = signature;
+          usersBody.innerHTML = '<tr><td colspan="9" class="empty">暂无用户</td></tr>';
+          return;
+        }
+        if (signature !== state.signature) {
+          state.signature = signature;
+          usersBody.innerHTML = state.users.map(user => {
+            const ports = [`Hysteria2 ${user.hysteria2_port}`]; if (user.tuic_port) ports.push(`TUIC ${user.tuic_port}`);
+            return `<tr data-username="${escapeHtml(user.username)}">
+              <td><div class="user-cell"><div class="avatar">${escapeHtml(user.username.slice(0,1).toUpperCase())}</div><div><div class="username">${escapeHtml(user.username)}</div><div class="role">${user.is_admin ? '管理员' : '普通用户'}</div></div></div></td>
+              <td><span class="status ${user.enabled ? '' : 'disabled'}">${user.enabled ? '● 启用' : '○ 停用'}</span></td>
+              <td class="number" data-field="speed">—</td>
+              <td><div class="protocols">${ports.map(port => `<span class="protocol">${escapeHtml(port)}</span>`).join('')}</div></td>
+              <td class="number" data-field="upload"></td><td class="number" data-field="download"></td><td class="number" data-field="used"></td>
+              <td><div class="quota"><div class="quota-text"><span data-field="used-display"></span><span data-field="total-display"></span></div><div class="track"><div class="bar" data-field="bar"></div></div><div class="secondary" data-field="remaining"></div></div></td>
+              <td><div class="actions"><button class="button small" data-action="copy" data-user="${escapeHtml(user.username)}">订阅</button><button class="button small" data-action="quota" data-user="${escapeHtml(user.username)}">额度</button><button class="button small" data-action="toggle" data-user="${escapeHtml(user.username)}" ${user.is_admin ? 'disabled' : ''}>${user.enabled ? '停用' : '启用'}</button><button class="button small danger" data-action="delete" data-user="${escapeHtml(user.username)}" ${user.is_admin ? 'disabled' : ''}>删除</button></div></td>
+            </tr>`;
+          }).join('');
+        }
+        state.users.forEach(user => {
+          const row = usersBody.querySelector(`[data-username="${user.username}"]`);
+          if (row) fillRow(row, user);
+        });
       }
       async function load(showError = true) {
+        if (state.loading) return;
+        state.loading = true;
         try { const data = await request('/users'); setError(); render(data); }
         catch (error) { if (showError) setError(error.message); }
+        finally { state.loading = false; }
       }
       async function mutate(path, method, body, success) {
         if (state.busy) return; state.busy = true;
@@ -256,7 +302,7 @@
         if (button.dataset.action === 'delete') { state.deleting = user.username; $('#delete-copy').textContent = `删除 ${user.username} 后，其订阅地址和双协议凭据将立即失效，此操作不可撤销。`; deleteDialog.showModal(); }
       });
       $('#delete-confirm').addEventListener('click', async () => { if (await mutate(`/users/${encodeURIComponent(state.deleting)}`, 'DELETE', undefined, `用户 ${state.deleting} 已删除`)) deleteDialog.close(); });
-      load(); setInterval(() => { if (!editDialog.open && !deleteDialog.open && !serverQuotaDialog.open) load(false); }, 30000);
+      load(); setInterval(() => { if (!state.busy && !editDialog.open && !deleteDialog.open && !serverQuotaDialog.open) load(false); }, 1000);
     })();
   </script>
 </body>
